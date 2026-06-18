@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Button, Tag, Spin, Empty, message, Table, Popconfirm, Modal, Descriptions, Space, Input } from 'antd';
+import { Button, Tag, Spin, message, Table, Popconfirm, Modal, Descriptions, Space, Input } from 'antd';
 import { CheckOutlined, CloseOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons';
 import { getPendingReviews, getReviewDetail, approveReview, rejectReview } from '../services/api';
+import EmptyState from '../components/EmptyState';
 
 interface ReviewItem {
   id: number;
@@ -179,20 +180,22 @@ export default function ReviewPage() {
       {/* 内容 */}
       <div className="page-body">
         {items.length === 0 && !loading ? (
-          <div style={{ textAlign: 'center', padding: 60, color: 'var(--ink-40)' }}>
-            <CheckOutlined style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }} />
-            <p>暂无待审核项</p>
-            <p style={{ fontSize: 13 }}>知识抽取后会自动进入审核队列</p>
-          </div>
-        ) : (
-          <Table
-            dataSource={items}
-            columns={columns}
-            rowKey="id"
-            loading={loading}
-            size="small"
-            pagination={{ pageSize: 10 }}
+          <EmptyState
+            icon={<CheckOutlined />}
+            title="暂无待审核项"
+            description="知识抽取后会自动进入审核队列"
           />
+        ) : (
+          <div className="themed-table">
+            <Table
+              dataSource={items}
+              columns={columns}
+              rowKey="id"
+              loading={loading}
+              size="small"
+              pagination={{ pageSize: 10 }}
+            />
+          </div>
         )}
       </div>
 
@@ -203,6 +206,7 @@ export default function ReviewPage() {
         onCancel={() => setDetailModalVisible(false)}
         footer={null}
         width={700}
+        className="themed-modal"
       >
         {detailLoading ? (
           <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>

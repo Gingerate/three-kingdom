@@ -599,8 +599,161 @@ body {
 }
 
 /* ============================================
-   数据管理页面 - 已入库文件表格
+   Modal 主题（水墨风格）
    ============================================ */
+.themed-modal .ant-modal-content {
+  background: var(--bg-surface);
+  border-radius: var(--r-md);
+}
+
+.themed-modal .ant-modal-header {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+}
+
+.themed-modal .ant-modal-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--ink-100);
+}
+
+.themed-modal .ant-modal-body {
+  padding: 20px 24px;
+  font-family: var(--font-body);
+}
+
+.themed-modal .ant-modal-footer {
+  border-top: 1px solid var(--border);
+  padding: 12px 24px;
+}
+
+.themed-modal .ant-modal-close {
+  color: var(--ink-40);
+}
+
+.themed-modal .ant-modal-close:hover {
+  color: var(--ink-100);
+}
+
+/* ============================================
+   Drawer 主题（水墨风格）
+   ============================================ */
+.themed-drawer .ant-drawer-content {
+  background: var(--bg-base);
+}
+
+.themed-drawer .ant-drawer-header {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.themed-drawer .ant-drawer-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--ink-100);
+}
+
+.themed-drawer .ant-drawer-body {
+  font-family: var(--font-body);
+}
+
+/* 兼容旧类名 - graph-drawer */
+.graph-drawer .ant-drawer-content {
+  background: var(--bg-base);
+}
+
+.graph-drawer .ant-drawer-header {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.graph-drawer .ant-drawer-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--ink-100);
+}
+
+/* 兼容旧类名 - preview-drawer */
+.preview-drawer .ant-drawer-content {
+  background: var(--bg-base);
+}
+
+.preview-drawer .ant-drawer-header {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.preview-drawer .ant-drawer-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--ink-100);
+}
+
+/* ============================================
+   通用表格主题（水墨风格）
+   ============================================ */
+.themed-table {
+  margin-top: var(--sp-md);
+}
+
+.themed-table .ant-table {
+  background: transparent !important;
+  font-family: var(--font-body);
+}
+
+.themed-table .ant-table-thead > tr > th {
+  background: var(--bg-sunken) !important;
+  border-bottom: 2px solid var(--border) !important;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink-80);
+  padding: 10px 12px !important;
+}
+
+.themed-table .ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--border-faint) !important;
+  padding: 10px 12px !important;
+  font-size: 13px;
+  transition: background var(--t-fast);
+}
+
+.themed-table .ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover) !important;
+}
+
+.themed-table .ant-table-tbody > tr.ant-table-row-selected > td {
+  background: var(--vermilion-faint) !important;
+}
+
+.themed-table .ant-table-cell-row-hover {
+  background: var(--bg-hover) !important;
+}
+
+.themed-table .ant-checkbox-wrapper {
+  color: var(--ink-60);
+}
+
+.themed-table .ant-checkbox-checked .ant-checkbox-inner {
+  background-color: var(--vermilion);
+  border-color: var(--vermilion);
+}
+
+.themed-table .ant-pagination {
+  margin-top: var(--sp-md) !important;
+  font-family: var(--font-body);
+}
+
+.themed-table .ant-pagination-item-active {
+  border-color: var(--vermilion) !important;
+}
+
+.themed-table .ant-pagination-item-active a {
+  color: var(--vermilion) !important;
+}
+
+/* 兼容旧类名 - 与 themed-table 相同样式 */
 .ingestion-table {
   margin-top: var(--sp-md);
 }
@@ -854,22 +1007,7 @@ body {
   font-family: var(--font-body);
 }
 
-/* 预览抽屉 */
-.preview-drawer .ant-drawer-content {
-  background: var(--bg-base);
-}
-
-.preview-drawer .ant-drawer-header {
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border);
-}
-
-.preview-drawer .ant-drawer-title {
-  font-family: var(--font-display);
-  font-weight: 700;
-  color: var(--ink-100);
-}
-
+/* 预览内容 */
 .preview-content {
   white-space: pre-wrap;
   font-family: var(--font-body);

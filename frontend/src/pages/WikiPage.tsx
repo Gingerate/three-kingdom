@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Button, Tag, Spin, Empty, message, Select, Popconfirm, Modal, Input, Statistic, Row, Col } from 'antd';
+import { Button, Tag, Spin, message, Select, Popconfirm, Modal, Input } from 'antd';
 import { BookOutlined, ThunderboltOutlined, DeleteOutlined, EditOutlined, ClearOutlined } from '@ant-design/icons';
-import { getWikiPages, getKnowledgeSummaries, distillWiki, deleteWikiPage, updateWikiPage, getKnowledgeStats, cleanupKnowledge } from '../services/api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { getWikiPages, getKnowledgeSummaries, distillWiki, deleteWikiPage, updateWikiPage, cleanupKnowledge } from '../services/api';
+import EmptyState from '../components/EmptyState';
 
 interface WikiPage {
   id: number;
@@ -34,7 +37,6 @@ export default function WikiPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
   const [editTopic, setEditTopic] = useState('');
-  const [knowledgeStats, setKnowledgeStats] = useState<{ total: number; oldest: string; newest: string } | null>(null);
   const [cleanupLoading, setCleanupLoading] = useState(false);
 
   useEffect(() => {
@@ -44,14 +46,12 @@ export default function WikiPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [wikiData, knowData, stats] = await Promise.all([
+      const [wikiData, knowData] = await Promise.all([
         getWikiPages(topicFilter || undefined),
         getKnowledgeSummaries(50),
-        getKnowledgeStats(),
       ]);
       setPages(wikiData.pages || []);
       setSummaries(knowData.summaries || []);
-      setKnowledgeStats(stats);
     } catch {
       message.error('加载数据失败');
     } finally {
@@ -136,60 +136,8 @@ export default function WikiPage() {
     setView('list');
   };
 
-  // 转义 HTML 特殊字符，防止 XSS
-  const escapeHtml = (text: string) => {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  };
-
-  // Markdown → HTML（简化版，支持标题、加粗、列表、分割线、代码块、有序列表）
-  const renderMarkdown = (md: string) => {
-    // 先转义 HTML 特殊字符
-    let html = escapeHtml(md);
-
-    // 代码块（```...```）
-    html = html.replace(/```[\s\S]*?```/g, (match) => {
-      const code = match.slice(3, -3).trim();
-      return `<pre class="wiki-pre"><code>${code}</code></pre>`;
-    });
-
-    // 行内代码（`...`）
-    html = html.replace(/`([^`]+)`/g, '<code class="wiki-code">$1</code>');
-
-    // 标题
-    html = html.replace(/^# (.+)$/gm, '<h1 class="wiki-h1">$1</h1>');
-    html = html.replace(/^## (.+)$/gm, '<h2 class="wiki-h2">$1</h2>');
-    html = html.replace(/^### (.+)$/gm, '<h3 class="wiki-h3">$1</h3>');
-
-    // 加粗和斜体
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-
-    // 无序列表
-    html = html.replace(/^\- (.+)$/gm, '<li class="wiki-li">$1</li>');
-
-    // 有序列表
-    html = html.replace(/^\d+\.\s+(.+)$/gm, '<li class="wiki-li-ordered">$1</li>');
-
-    // 分割线
-    html = html.replace(/^---$/gm, '<hr class="wiki-hr" />');
-
-    // 段落（非标签开头的行）
-    html = html.replace(/^(?!<[hlp]|<li|<hr|<pre|<code)(.+)$/gm, '<p class="wiki-p">$1</p>');
-
-    // 合并连续的列表项
-    html = html.replace(/(<li class="wiki-li">[\s\S]*?<\/li>)/g, '<ul class="wiki-ul">$1</ul>');
-    html = html.replace(/(<li class="wiki-li-ordered">[\s\S]*?<\/li>)/g, '<ol class="wiki-ol">$1</ol>');
-
-    return html;
-  };
-
   if (view === 'reader' && selectedPage) {
-    return <WikiReader page={selectedPage} onClose={closePage} renderMarkdown={renderMarkdown} />;
+    return <WikiReader page={selectedPage} onClose={closePage} />;
   }
 
   return (
@@ -286,7 +234,7 @@ export default function WikiPage() {
                           WebkitBoxOrient: 'vertical',
                           overflow: 'hidden',
                         }}>
-                          {(page.content || page.content_preview || '').replace(/[#*\-]/g, '').slice(0, 150)}...
+                          {(page.content || '').replace(/[#*\-]/g, '').slice(0, 150)}...
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
@@ -328,7 +276,11 @@ export default function WikiPage() {
                 最近知识摘要
               </h3>
               {summaries.length === 0 ? (
-                <Empty description="暂无摘要，开始对话后自动提取" />
+                <EmptyState
+                  icon={<BookOutlined />}
+                  title="暂无摘要"
+                  description="开始对话后自动提取知识摘要"
+                />
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {summaries.slice(0, 20).map((s) => (
@@ -354,11 +306,11 @@ export default function WikiPage() {
             </div>
 
             {pages.length === 0 && summaries.length === 0 && (
-              <div style={{ textAlign: 'center', padding: 60, color: 'var(--ink-40)' }}>
-                <BookOutlined style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }} />
-                <p>开始智能问答后，系统会自动提取知识摘要</p>
-                <p style={{ fontSize: 13 }}>积累足够摘要后，可生成 Wiki 页面</p>
-              </div>
+              <EmptyState
+                icon={<BookOutlined />}
+                title="暂无知识内容"
+                description="开始智能问答后，系统会自动提取知识摘要。积累足够摘要后，可生成 Wiki 页面。"
+              />
             )}
           </>
         )}
@@ -373,6 +325,7 @@ export default function WikiPage() {
         width={800}
         okText="保存"
         cancelText="取消"
+        className="themed-modal"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
@@ -401,10 +354,9 @@ export default function WikiPage() {
 
 /* ── Wiki 阅读器 ── */
 
-function WikiReader({ page, onClose, renderMarkdown }: {
+function WikiReader({ page, onClose }: {
   page: WikiPage;
   onClose: () => void;
-  renderMarkdown: (md: string) => string;
 }) {
   const [visibleSections, setVisibleSections] = useState<Set<number>>(new Set());
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -490,7 +442,7 @@ function WikiReader({ page, onClose, renderMarkdown }: {
         </div>
 
         {/* 内容段落 — 逐段入场 */}
-        <div style={{ maxWidth: 720, margin: '0 auto', padding: '32px 24px 80px' }}>
+        <div className="wiki-content" style={{ maxWidth: 720, margin: '0 auto', padding: '32px 24px 80px' }}>
           {sections.map((section, idx) => {
             const isVisible = visibleSections.has(idx);
             return (
@@ -498,6 +450,7 @@ function WikiReader({ page, onClose, renderMarkdown }: {
                 key={idx}
                 ref={(el) => { sectionRefs.current[idx] = el; }}
                 data-idx={idx}
+                className="wiki-section"
                 style={{
                   opacity: isVisible ? 1 : 0,
                   transform: isVisible ? 'translateY(0)' : 'translateY(30px)',
@@ -505,8 +458,35 @@ function WikiReader({ page, onClose, renderMarkdown }: {
                   transition: 'all 0.8s cubic-bezier(0.22, 1, 0.36, 1)',
                   marginBottom: 32,
                 }}
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(section) }}
-              />
+              >
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    h1: ({ children }) => <h1 className="wiki-h1">{children}</h1>,
+                    h2: ({ children }) => <h2 className="wiki-h2">{children}</h2>,
+                    h3: ({ children }) => <h3 className="wiki-h3">{children}</h3>,
+                    p: ({ children }) => <p className="wiki-p">{children}</p>,
+                    ul: ({ children }) => <ul className="wiki-ul">{children}</ul>,
+                    ol: ({ children }) => <ol className="wiki-ol">{children}</ol>,
+                    li: ({ children, node }) => {
+                      const isOrdered = (node as unknown as HTMLElement)?.parentElement?.tagName === 'OL';
+                      return <li className={isOrdered ? 'wiki-li-ordered' : 'wiki-li'}>{children}</li>;
+                    },
+                    hr: () => <hr className="wiki-hr" />,
+                    pre: ({ children }) => <pre className="wiki-pre">{children}</pre>,
+                    code: ({ children, className }) => {
+                      const isInline = !className;
+                      return isInline
+                        ? <code className="wiki-code">{children}</code>
+                        : <code>{children}</code>;
+                    },
+                    strong: ({ children }) => <strong>{children}</strong>,
+                    em: ({ children }) => <em>{children}</em>,
+                  }}
+                >
+                  {section}
+                </ReactMarkdown>
+              </div>
             );
           })}
         </div>

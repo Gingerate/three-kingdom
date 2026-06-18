@@ -48,45 +48,53 @@ class ProgressTracker:
     def __init__(self):
         self._tasks: dict[str, ProgressState] = {}
         self._subscribers: dict[str, list[asyncio.Queue]] = {}
-        self._cleanup_lock = threading.Lock()
+        self._lock = threading.Lock()  # 保护 _tasks 和 _subscribers 的并发访问
         # 启动后台清理线程
         self._cleanup_thread = threading.Thread(target=self._auto_cleanup_loop, daemon=True)
         self._cleanup_thread.start()
 
+
     def create_task(self, task_id: str) -> ProgressState:
         state = ProgressState(task_id=task_id)
-        self._tasks[task_id] = state
-        self._subscribers[task_id] = []
+        with self._lock:
+            self._tasks[task_id] = state
+            self._subscribers[task_id] = []
         return state
 
     def update(self, task_id: str, *, stage: str | None = None,
                current: int | None = None, total: int | None = None,
                message: str | None = None, done: bool | None = None,
                error: str | None = None):
-        state = self._tasks.get(task_id)
-        if not state:
-            return
+        with self._lock:
+            state = self._tasks.get(task_id)
+            if not state:
+                return
 
-        if stage is not None:
-            state.stage = stage
-        if current is not None:
-            state.current = current
-        if total is not None:
-            state.total = total
-        if message is not None:
-            state.message = message
-        if done is not None:
-            state.done = done
-        if error is not None:
-            state.error = error
+            if stage is not None:
+                state.stage = stage
+            if current is not None:
+                state.current = current
+            if total is not None:
+                state.total = total
+            if message is not None:
+                state.message = message
+            if done is not None:
+                state.done = done
+            if error is not None:
+                state.error = error
 
-        # 通知所有订阅者
+        # 通知所有订阅者（锁外执行，避免死锁）
         self._notify(task_id, state)
 
     def _notify(self, task_id: str, state: ProgressState):
-        for queue in self._subscribers.get(task_id, []):
+        # 获取订阅者列表的副本，避免迭代时修改
+        with self._lock:
+            queues = list(self._subscribers.get(task_id, []))
+
+        data = state.to_dict()
+        for queue in queues:
             try:
-                queue.put_nowait(state.to_dict())
+                queue.put_nowait(data)
             except asyncio.QueueFull:
                 pass
 
@@ -98,10 +106,14 @@ class ProgressTracker:
             timeout: 超时时间（秒），默认 5 分钟
         """
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
-        self._subscribers.setdefault(task_id, []).append(queue)
+
+        # 注册订阅者
+        with self._lock:
+            self._subscribers.setdefault(task_id, []).append(queue)
 
         # 先发送当前状态
-        state = self._tasks.get(task_id)
+        with self._lock:
+            state = self._tasks.get(task_id)
         if state:
             yield state.to_dict()
             if state.done:
@@ -124,20 +136,25 @@ class ProgressTracker:
                         break
                 except asyncio.TimeoutError:
                     # 发送心跳保持连接
-                    if self._tasks.get(task_id):
-                        yield self._tasks[task_id].to_dict()
+                    with self._lock:
+                        current_state = self._tasks.get(task_id)
+                    if current_state:
+                        yield current_state.to_dict()
         finally:
             # 清理
-            subs = self._subscribers.get(task_id, [])
-            if queue in subs:
-                subs.remove(queue)
+            with self._lock:
+                subs = self._subscribers.get(task_id, [])
+                if queue in subs:
+                    subs.remove(queue)
 
     def get_state(self, task_id: str) -> ProgressState | None:
-        return self._tasks.get(task_id)
+        with self._lock:
+            return self._tasks.get(task_id)
 
     def cleanup(self, task_id: str):
-        self._tasks.pop(task_id, None)
-        self._subscribers.pop(task_id, None)
+        with self._lock:
+            self._tasks.pop(task_id, None)
+            self._subscribers.pop(task_id, None)
 
     def _auto_cleanup_loop(self):
         """后台自动清理已完成的任务"""
@@ -147,15 +164,17 @@ class ProgressTracker:
 
     def _cleanup_expired_tasks(self):
         """清理过期的已完成任务"""
-        with self._cleanup_lock:
+        with self._lock:
             now = time.time()
             expired_ids = []
             for task_id, state in self._tasks.items():
                 if state.done and (now - state.started_at) > self.AUTO_CLEANUP_SECONDS:
                     expired_ids.append(task_id)
-            for task_id in expired_ids:
-                self.cleanup(task_id)
-                print(f"[ProgressTracker] 自动清理过期任务: {task_id}")
+
+        # 在锁外执行清理，避免死锁
+        for task_id in expired_ids:
+            self.cleanup(task_id)
+            print(f"[ProgressTracker] 自动清理过期任务: {task_id}")
 
 
 # 全局单例

@@ -10,21 +10,27 @@ interface InkProgressProps {
 /** 水墨风格进度条 —— 墨迹生长 + 飞白纹理 */
 export default function InkProgress({ percent, stage, message, status = 'active' }: InkProgressProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const displayPercentRef = useRef(0);
+  const animFrameRef = useRef<number>(0);
   const [displayPercent, setDisplayPercent] = useState(0);
 
-  // 平滑过渡到目标百分比
+  // 平滑过渡到目标百分比（使用 useRef + requestAnimationFrame）
   useEffect(() => {
-    const diff = percent - displayPercent;
-    if (Math.abs(diff) < 1) {
-      setDisplayPercent(percent);
-      return;
-    }
-    const step = diff * 0.15;
-    const timer = requestAnimationFrame(() => {
-      setDisplayPercent(prev => prev + step);
-    });
-    return () => cancelAnimationFrame(timer);
-  }, [percent, displayPercent]);
+    const animate = () => {
+      const diff = percent - displayPercentRef.current;
+      if (Math.abs(diff) < 1) {
+        displayPercentRef.current = percent;
+        setDisplayPercent(percent);
+        return;
+      }
+      displayPercentRef.current += diff * 0.15;
+      setDisplayPercent(displayPercentRef.current);
+      animFrameRef.current = requestAnimationFrame(animate);
+    };
+
+    animFrameRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animFrameRef.current);
+  }, [percent]);
 
   // 绘制墨迹进度条
   useEffect(() => {

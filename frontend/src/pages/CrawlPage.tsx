@@ -1,7 +1,24 @@
 import { useState, useEffect } from 'react';
-import { Button, Tag, Spin, Empty, message, Table, Select, Checkbox, Card, Row, Col, Statistic } from 'antd';
-import { CloudDownloadOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import { crawlPapers, getCrawlKeywords, getCrawlResults } from '../services/api';
+import { Button, Tag, message, Table, Select, Checkbox, Modal, Space, Popconfirm } from 'antd';
+import {
+  CloudDownloadOutlined,
+  ReloadOutlined,
+  BookOutlined,
+  LinkOutlined,
+  DeleteOutlined,
+  ImportOutlined,
+  EyeOutlined,
+  FileTextOutlined,
+} from '@ant-design/icons';
+import {
+  crawlPapers,
+  getCrawlKeywords,
+  getCrawlResults,
+  deleteCrawlResult,
+  ingestCrawlResult,
+} from '../services/api';
+import Section from './data/Section';
+import EmptyState from '../components/EmptyState';
 
 interface Paper {
   title: string;
@@ -10,6 +27,9 @@ interface Paper {
   abstract: string;
   keyword: string;
   citation_count: number;
+  url?: string;
+  pdf_url?: string;
+  source?: string;
 }
 
 export default function CrawlPage() {
@@ -20,6 +40,10 @@ export default function CrawlPage() {
   const [downloadPdfs, setDownloadPdfs] = useState(false);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [papersLoading, setPapersLoading] = useState(false);
+
+  // 详情弹窗
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
 
   useEffect(() => {
     loadKeywords();
@@ -64,6 +88,34 @@ export default function CrawlPage() {
     }
   };
 
+  const handleDelete = async (index: number) => {
+    try {
+      await deleteCrawlResult(index);
+      message.success('删除成功');
+      loadResults();
+    } catch {
+      message.error('删除失败');
+    }
+  };
+
+  const handleIngest = async (index: number) => {
+    try {
+      const result = await ingestCrawlResult(index);
+      message.success(result.message || '导入成功');
+    } catch {
+      message.error('导入失败');
+    }
+  };
+
+  const handleViewDetail = (paper: Paper) => {
+    setSelectedPaper(paper);
+    setDetailModalVisible(true);
+  };
+
+  const handleOpenUrl = (url: string) => {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const categories = Object.keys(keywords);
 
   const columns = [
@@ -80,7 +132,7 @@ export default function CrawlPage() {
       title: '作者',
       dataIndex: 'authors',
       key: 'authors',
-      width: 200,
+      width: 180,
       ellipsis: true,
       render: (authors: string[]) => authors?.join(', ') || '-',
     },
@@ -88,14 +140,14 @@ export default function CrawlPage() {
       title: '年份',
       dataIndex: 'year',
       key: 'year',
-      width: 80,
+      width: 70,
       align: 'center' as const,
     },
     {
       title: '引用',
       dataIndex: 'citation_count',
       key: 'citation_count',
-      width: 80,
+      width: 70,
       align: 'center' as const,
       sorter: (a: Paper, b: Paper) => a.citation_count - b.citation_count,
     },
@@ -103,16 +155,46 @@ export default function CrawlPage() {
       title: '关键词',
       dataIndex: 'keyword',
       key: 'keyword',
-      width: 120,
+      width: 100,
       render: (keyword: string) => <Tag>{keyword}</Tag>,
     },
     {
-      title: '摘要',
-      dataIndex: 'abstract',
-      key: 'abstract',
-      ellipsis: true,
-      render: (text: string) => (
-        <span style={{ fontSize: 12, color: 'var(--ink-60)' }}>{text}</span>
+      title: '操作',
+      key: 'action',
+      width: 200,
+      render: (_: any, record: Paper, index: number) => (
+        <Space size="small">
+          <Button
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => handleViewDetail(record)}
+          >
+            详情
+          </Button>
+          {record.url && (
+            <Button
+              size="small"
+              icon={<LinkOutlined />}
+              onClick={() => handleOpenUrl(record.url!)}
+            >
+              原文
+            </Button>
+          )}
+          <Popconfirm
+            title="确定导入此论文到知识库？"
+            onConfirm={() => handleIngest(index)}
+          >
+            <Button size="small" icon={<ImportOutlined />}>
+              入库
+            </Button>
+          </Popconfirm>
+          <Popconfirm
+            title="确定删除此论文？"
+            onConfirm={() => handleDelete(index)}
+          >
+            <Button size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
@@ -132,22 +214,7 @@ export default function CrawlPage() {
       {/* 内容 */}
       <div className="page-body">
         {/* 配置区 */}
-        <div style={{
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--r-md)',
-          padding: 20,
-          marginBottom: 20,
-        }}>
-          <h3 style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 15,
-            fontWeight: 700,
-            color: 'var(--ink-100)',
-            marginBottom: 14,
-          }}>
-            爬取配置
-          </h3>
+        <Section title="爬取配置">
 
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 13, color: 'var(--ink-60)', marginBottom: 8 }}>选择类别（不选则全部）</div>
@@ -202,39 +269,119 @@ export default function CrawlPage() {
               开始爬取
             </Button>
           </div>
-        </div>
+        </Section>
 
         {/* 结果列表 */}
-        <div style={{
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--r-md)',
-          padding: 20,
-        }}>
-          <h3 style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 15,
-            fontWeight: 700,
-            color: 'var(--ink-100)',
-            marginBottom: 14,
-          }}>
-            爬取结果
-          </h3>
-
+        <Section title="爬取结果">
           {papers.length === 0 && !papersLoading ? (
-            <Empty description="暂无论文数据" />
-          ) : (
-            <Table
-              dataSource={papers}
-              columns={columns}
-              rowKey={(_, i) => String(i)}
-              loading={papersLoading}
-              size="small"
-              pagination={{ pageSize: 10 }}
+            <EmptyState
+              icon={<BookOutlined />}
+              title="暂无论文数据"
+              description="配置爬取参数后点击「开始爬取」"
             />
+          ) : (
+            <div className="themed-table">
+              <Table
+                dataSource={papers}
+                columns={columns}
+                rowKey={(_, i) => String(i)}
+                loading={papersLoading}
+                size="small"
+                pagination={{ pageSize: 10 }}
+              />
+            </div>
           )}
-        </div>
+        </Section>
       </div>
+
+      {/* 论文详情弹窗 */}
+      <Modal
+        title="论文详情"
+        open={detailModalVisible}
+        onCancel={() => setDetailModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setDetailModalVisible(false)}>
+            关闭
+          </Button>,
+          selectedPaper?.url && (
+            <Button
+              key="link"
+              type="primary"
+              icon={<LinkOutlined />}
+              onClick={() => handleOpenUrl(selectedPaper.url!)}
+            >
+              打开原文
+            </Button>
+          ),
+          selectedPaper?.pdf_url && (
+            <Button
+              key="pdf"
+              icon={<FileTextOutlined />}
+              onClick={() => handleOpenUrl(selectedPaper.pdf_url!)}
+            >
+              下载 PDF
+            </Button>
+          ),
+        ]}
+        width={700}
+        className="themed-modal"
+      >
+        {selectedPaper && (
+          <div style={{ lineHeight: 1.8 }}>
+            <h3 style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 18,
+              fontWeight: 700,
+              color: 'var(--ink-100)',
+              marginBottom: 16,
+            }}>
+              {selectedPaper.title}
+            </h3>
+
+            <div style={{ marginBottom: 16 }}>
+              <Tag color="blue">{selectedPaper.keyword}</Tag>
+              {selectedPaper.source && <Tag>{selectedPaper.source}</Tag>}
+              {selectedPaper.year && <Tag>{selectedPaper.year}年</Tag>}
+              {selectedPaper.citation_count > 0 && (
+                <Tag color="orange">引用 {selectedPaper.citation_count}</Tag>
+              )}
+            </div>
+
+            <div style={{ marginBottom: 16, color: 'var(--ink-80)' }}>
+              <strong>作者：</strong>
+              {selectedPaper.authors?.join('、') || '未知'}
+            </div>
+
+            <div style={{
+              background: 'var(--bg-sunken)',
+              padding: 16,
+              borderRadius: 'var(--r-md)',
+              marginBottom: 16,
+            }}>
+              <div style={{ fontWeight: 700, marginBottom: 8, color: 'var(--ink-100)' }}>
+                摘要
+              </div>
+              <div style={{ color: 'var(--ink-80)', textAlign: 'justify' }}>
+                {selectedPaper.abstract || '暂无摘要'}
+              </div>
+            </div>
+
+            {selectedPaper.url && (
+              <div style={{ fontSize: 13, color: 'var(--ink-60)' }}>
+                <strong>原文链接：</strong>
+                <a
+                  href={selectedPaper.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: 'var(--vermilion)', marginLeft: 8 }}
+                >
+                  {selectedPaper.url}
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

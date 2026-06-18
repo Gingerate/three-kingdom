@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { MessageOutlined, NodeIndexOutlined, DatabaseOutlined, BookOutlined, AuditOutlined, CloudOutlined } from '@ant-design/icons';
 import { ChatProvider } from './contexts/ChatContext';
+import ErrorBoundary from './components/ErrorBoundary';
 import ChatPage from './pages/ChatPage';
 import GraphPage from './pages/GraphPage';
 import DataPage from './pages/DataPage';
@@ -145,15 +146,17 @@ function App() {
       <div className="main-content">
         <InkLandscape />
         <div className="page-wrapper">
-          <Routes>
-            <Route path="/chat" element={<ChatPage />} />
-            <Route path="/wiki" element={<WikiPage />} />
-            <Route path="/graph" element={<GraphPage />} />
-            <Route path="/review" element={<ReviewPage />} />
-            <Route path="/crawl" element={<CrawlPage />} />
-            <Route path="/data" element={<DataPage />} />
-            <Route path="*" element={<Navigate to="/chat" replace />} />
-          </Routes>
+          <ErrorBoundary>
+            <Routes>
+              <Route path="/chat" element={<ChatPage />} />
+              <Route path="/wiki" element={<WikiPage />} />
+              <Route path="/graph" element={<GraphPage />} />
+              <Route path="/review" element={<ReviewPage />} />
+              <Route path="/crawl" element={<CrawlPage />} />
+              <Route path="/data" element={<DataPage />} />
+              <Route path="*" element={<Navigate to="/chat" replace />} />
+            </Routes>
+          </ErrorBoundary>
         </div>
       </div>
       </ChatProvider>

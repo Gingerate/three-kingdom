@@ -311,3 +311,15 @@ export async function getCrawlKeywords(): Promise<Record<string, string[]>> {
 export async function getCrawlResults(): Promise<any> {
   return request('/crawl/results');
 }
+
+export async function deleteCrawlResult(index: number): Promise<any> {
+  return request(`/crawl/results/${index}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function ingestCrawlResult(index: number): Promise<any> {
+  return request(`/crawl/ingest/${index}`, {
+    method: 'POST',
+  });
+}

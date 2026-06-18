@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import threading
-import torch
 from langchain_core.documents import Document
 
-from app.core.config import settings
+from app.core.config import settings, get_default_device
 
 
 class LocalReranker:
@@ -14,7 +13,7 @@ class LocalReranker:
 
     def __init__(self, model_path: str | None = None, device: str | None = None):
         self.model_path = model_path or settings.reranker_model_path
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device or get_default_device()
         self._model = None
         self._tokenizer = None
 
@@ -23,13 +22,16 @@ class LocalReranker:
         if self._model is not None:
             return
 
+        import torch
         from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-        print(f"正在加载 Reranker 模型: {self.model_path}")
+        print(f"正在加载 Reranker 模型: {self.model_path}, 设备: {self.device}")
         self._tokenizer = AutoTokenizer.from_pretrained(self.model_path)
+        # CUDA 使用 float16 加速，其他设备使用 float32
+        dtype = torch.float16 if self.device == "cuda" else torch.float32
         self._model = AutoModelForSequenceClassification.from_pretrained(
             self.model_path,
-            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+            torch_dtype=dtype,
         ).to(self.device)
         self._model.eval()
         print("Reranker 模型加载完成")
@@ -44,6 +46,8 @@ class LocalReranker:
         Returns:
             每个段落的相关性分数
         """
+        import torch
+
         self._load_model()
 
         scores = []

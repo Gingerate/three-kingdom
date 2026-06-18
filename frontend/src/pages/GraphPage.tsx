@@ -18,6 +18,34 @@ const ENTITY_LABELS: Record<string, string> = {
   force: '势力',
 };
 
+/** 实体详情接口 */
+interface EntityDetail {
+  id: number;
+  name: string;
+  entity_type: string;
+  description?: string;
+  courtesy_name?: string;
+  origin?: string;
+  birth_year?: string;
+  death_year?: string;
+  year?: string;
+  location?: string;
+  leader?: string;
+  period?: string;
+}
+
+/** 关系详情接口 */
+interface RelationDetail {
+  id: number;
+  source_type: string;
+  source_id: number;
+  source_name?: string;
+  target_type: string;
+  target_id: number;
+  target_name?: string;
+  relation_type: string;
+}
+
 export default function GraphPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<Graph | null>(null);
@@ -25,8 +53,8 @@ export default function GraphPage() {
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [filterType, setFilterType] = useState<string | undefined>(undefined);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [selectedEntity, setSelectedEntity] = useState<any>(null);
-  const [selectedRelations, setSelectedRelations] = useState<any[]>([]);
+  const [selectedEntity, setSelectedEntity] = useState<EntityDetail | null>(null);
+  const [selectedRelations, setSelectedRelations] = useState<RelationDetail[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
 
   const loadGraph = useCallback(async () => {

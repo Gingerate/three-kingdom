@@ -134,6 +134,17 @@ def distill_and_save(session_ids: list[str] | None = None,
     if not summaries:
         return {"status": "error", "message": "没有可用的知识摘要"}
 
+    # 按 question 去重，保留最新的摘要
+    seen_questions: dict[str, dict] = {}
+    for s in summaries:
+        q = s.get("question", "").strip()
+        if q and q not in seen_questions:
+            seen_questions[q] = s
+    summaries = list(seen_questions.values())
+
+    if not summaries:
+        return {"status": "error", "message": "没有可用的知识摘要"}
+
     # 如果没有指定主题，先检测（避免 generate_wiki 内部再检测一次）
     if not topic:
         topic = detect_topic(summaries)

@@ -76,6 +76,7 @@ export default function ChatPage() {
                   key={q}
                   className="quick-btn"
                   onClick={() => onSend(q)}
+                  aria-label={`快速提问：${q}`}
                 >
                   {q}
                 </button>

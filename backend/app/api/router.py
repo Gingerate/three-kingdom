@@ -1,12 +1,14 @@
 """API 路由注册"""
 
 import os
+import re
 import logging
 from fastapi import APIRouter, Query, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import json
 import uuid
+from dataclasses import asdict
 
 from app.models.schemas import ChatRequest
 
@@ -747,13 +749,82 @@ async def get_crawl_results():
                 "title": p.title,
                 "authors": p.authors,
                 "year": p.year,
-                "abstract": p.abstract[:200] + "..." if len(p.abstract) > 200 else p.abstract,
+                "abstract": p.abstract,
                 "keyword": p.keyword,
                 "citation_count": p.citation_count,
+                "url": p.url,
+                "pdf_url": p.pdf_url,
+                "source": p.source,
             }
             for p in papers
         ],
         "count": len(papers),
+    }
+
+
+@api_router.delete("/crawl/results/{index}")
+async def delete_crawl_result(index: int):
+    """删除指定索引的爬取结果"""
+    from pathlib import Path
+    from app.core.config import settings
+    results_file = Path(settings.raw_data_dir).parent / "processed" / "scholar_results.json"
+    if not results_file.exists():
+        raise HTTPException(status_code=404, detail="结果文件不存在")
+
+    from app.crawler.scholar import load_search_results
+    papers = load_search_results(str(results_file))
+
+    if index < 0 or index >= len(papers):
+        raise HTTPException(status_code=400, detail="索引越界")
+
+    removed = papers.pop(index)
+
+    # 保存回文件
+    with open(results_file, "w", encoding="utf-8") as f:
+        json.dump([asdict(p) for p in papers], f, ensure_ascii=False, indent=2)
+
+    return {"status": "ok", "message": f"已删除: {removed.title}"}
+
+
+@api_router.post("/crawl/ingest/{index}")
+async def ingest_crawl_result(index: int):
+    """将指定索引的论文导入知识库"""
+    from pathlib import Path
+    from app.core.config import settings
+    results_file = Path(settings.raw_data_dir).parent / "processed" / "scholar_results.json"
+    if not results_file.exists():
+        raise HTTPException(status_code=404, detail="结果文件不存在")
+
+    from app.crawler.scholar import load_search_results
+    papers = load_search_results(str(results_file))
+
+    if index < 0 or index >= len(papers):
+        raise HTTPException(status_code=400, detail="索引越界")
+
+    paper = papers[index]
+
+    # 创建临时文件保存论文内容
+    import tempfile
+    content = f"# {paper.title}\n\n"
+    content += f"**作者**: {', '.join(paper.authors)}\n"
+    content += f"**年份**: {paper.year}\n"
+    content += f"**来源**: {paper.source}\n"
+    content += f"**引用数**: {paper.citation_count}\n\n"
+    content += f"## 摘要\n\n{paper.abstract}\n"
+
+    if paper.url:
+        content += f"\n**原文链接**: {paper.url}\n"
+
+    # 保存到 raw 目录
+    safe_title = re.sub(r'[^\w\s-]', '', paper.title)[:50].strip()
+    filename = f"paper_{safe_title}.md"
+    filepath = Path(settings.raw_data_dir) / filename
+    filepath.write_text(content, encoding="utf-8")
+
+    return {
+        "status": "ok",
+        "message": f"已导入: {paper.title}",
+        "filename": filename,
     }
 
 
