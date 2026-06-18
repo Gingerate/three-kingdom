@@ -2,6 +2,7 @@
 
 import os
 import re
+import asyncio
 import logging
 from fastapi import APIRouter, Query, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
@@ -14,6 +15,9 @@ from app.models.schemas import ChatRequest
 
 logger = logging.getLogger(__name__)
 api_router = APIRouter()
+
+# 后台任务引用集合，防止 GC 提前回收
+_background_tasks: set[asyncio.Task] = set()
 
 # 表名白名单，防止 SQL 注入
 _VALID_TABLES = {"persons", "events", "forces"}
@@ -93,7 +97,9 @@ async def chat_stream(req: ChatRequest):
                     )
                 except Exception as e:
                     logger.error(f"记忆存储失败: {e}")
-            asyncio.create_task(_save_memory())
+            _bg_task = asyncio.create_task(_save_memory())
+            _background_tasks.add(_bg_task)
+            _bg_task.add_done_callback(_background_tasks.discard)
 
     return StreamingResponse(
         event_generator(),
@@ -275,8 +281,11 @@ async def upload_and_ingest(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="文件名不能为空")
     file_path = raw_dir / safe_filename
 
-    with open(file_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    def _save_file():
+        with open(file_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+
+    await asyncio.to_thread(_save_file)
 
     # 触发入库
     from app.kg.pipeline import process_and_ingest
@@ -471,7 +480,7 @@ async def delete_raw_file(filepath: str):
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
-    filename = file_path.stem  # 不含扩展名的文件名
+    filename = file_path.name  # 含扩展名的文件名（与入库时 source 字段一致）
 
     # 1. 删除向量库中关联的数据（按 source 匹配）
     try:
@@ -817,6 +826,8 @@ async def ingest_crawl_result(index: int):
 
     # 保存到 raw 目录
     safe_title = re.sub(r'[^\w\s-]', '', paper.title)[:50].strip()
+    if not safe_title:
+        safe_title = "untitled"
     filename = f"paper_{safe_title}.md"
     filepath = Path(settings.raw_data_dir) / filename
     filepath.write_text(content, encoding="utf-8")

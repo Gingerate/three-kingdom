@@ -136,6 +136,8 @@ export default function GraphPage() {
       behaviors: ['drag-element', 'zoom-canvas', 'drag-canvas'],
     });
 
+    let currentRequestId = 0;
+
     graph.on('node:click', async (event: any) => {
       const nodeId = event.target?.id;
       if (!nodeId) return;
@@ -144,6 +146,7 @@ export default function GraphPage() {
       const entityId = parseInt(parts[1]);
       if (!entityType || isNaN(entityId)) return;
 
+      const requestId = ++currentRequestId;
       setDrawerOpen(true);
       setDetailLoading(true);
       setSelectedEntity(null);
@@ -151,12 +154,17 @@ export default function GraphPage() {
 
       try {
         const detail = await getEntityDetail(entityType, entityId);
+        // 快速点击多个节点时，只采纳最后一次请求的结果
+        if (requestId !== currentRequestId) return;
         setSelectedEntity({ ...detail.entity, entity_type: entityType });
         setSelectedRelations(detail.relations || []);
       } catch {
+        if (requestId !== currentRequestId) return;
         message.error('获取详情失败');
       } finally {
-        setDetailLoading(false);
+        if (requestId === currentRequestId) {
+          setDetailLoading(false);
+        }
       }
     });
 

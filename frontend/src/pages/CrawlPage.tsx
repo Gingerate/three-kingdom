@@ -63,7 +63,9 @@ export default function CrawlPage() {
     setPapersLoading(true);
     try {
       const data = await getCrawlResults();
-      setPapers(data.papers || []);
+      // 为每条数据注入原始索引，排序后操作仍指向正确的后端数据
+      const papersWithIndex = (data.papers || []).map((p: Paper, i: number) => ({ ...p, _originalIndex: i }));
+      setPapers(papersWithIndex);
     } catch {
       message.error('加载结果失败');
     } finally {
@@ -162,7 +164,7 @@ export default function CrawlPage() {
       title: '操作',
       key: 'action',
       width: 200,
-      render: (_: any, record: Paper, index: number) => (
+      render: (_: any, record: Paper & { _originalIndex?: number }) => (
         <Space size="small">
           <Button
             size="small"
@@ -182,7 +184,7 @@ export default function CrawlPage() {
           )}
           <Popconfirm
             title="确定导入此论文到知识库？"
-            onConfirm={() => handleIngest(index)}
+            onConfirm={() => handleIngest(record._originalIndex ?? 0)}
           >
             <Button size="small" icon={<ImportOutlined />}>
               入库
@@ -190,7 +192,7 @@ export default function CrawlPage() {
           </Popconfirm>
           <Popconfirm
             title="确定删除此论文？"
-            onConfirm={() => handleDelete(index)}
+            onConfirm={() => handleDelete(record._originalIndex ?? 0)}
           >
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>

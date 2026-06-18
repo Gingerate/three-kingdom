@@ -47,6 +47,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         return updated;
       });
       abortRef.current.abort();
+      abortRef.current = null;
+      setLoading(false);
+      setStreamStatus('');
     }
 
     const question = (text || '').trim();

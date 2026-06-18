@@ -42,6 +42,13 @@ def process_and_ingest(raw_dir: str | None = None,
             cleanup_all()
             logger.info("已清空去重记录，将重新入库所有文件")
 
+        # clear_first：在去重检查之前清空向量库和去重记录
+        if clear_first:
+            deleted = clear_vectorstore()
+            logger.info(f"已清空向量库，删除 {deleted} 条")
+            cleanup_all()
+            logger.info("已同步清空去重记录")
+
         # 1. 加载所有文档
         logger.info("=" * 50)
         logger.info("第 1 步：加载原始文档")
@@ -104,21 +111,15 @@ def process_and_ingest(raw_dir: str | None = None,
         from app.rag.embeddings import LocalHuggingFaceEmbeddings
         embeddings = LocalHuggingFaceEmbeddings(quantize=quantize)
 
-        if clear_first:
-            deleted = clear_vectorstore()
-            logger.info(f"已清空向量库，删除 {deleted} 条")
-            # 同时清空去重记录，避免 clear_first 后去重检查误判
-            cleanup_all()
-            logger.info("已同步清空去重记录")
-
-        ingested = add_chunks_to_vectorstore(new_chunks, embeddings)
-        logger.info(f"成功写入 {ingested} 条到向量库")
-
-        # 5. 记录去重信息
+        # 5. 先记录去重信息（确保幂等：若进程在入库后崩溃，重试时不会重复写入）
         add_records_batch(records_to_add)
         logger.info(f"已记录 {len(records_to_add)} 条去重信息")
 
-        # 6. 统计
+        # 6. Embedding + 写入向量库
+        ingested = add_chunks_to_vectorstore(new_chunks, embeddings)
+        logger.info(f"成功写入 {ingested} 条到向量库")
+
+        # 7. 统计
         stats = get_vectorstore_stats(embeddings)
         logger.info("=" * 50)
         logger.info("处理完成！")
@@ -174,6 +175,14 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
         if force_reingest:
             cleanup_all()
             update(message="已清空去重记录，将重新入库所有文件")
+
+        # clear_first：在去重检查之前清空向量库和去重记录
+        if clear_first:
+            update(message="清空向量库...")
+            deleted = clear_vectorstore()
+            logger.info(f"已清空向量库，删除 {deleted} 条")
+            cleanup_all()
+            logger.info("已同步清空去重记录")
 
         # 1. 加载文档
         update(stage="加载文档", message="正在扫描 raw/ 目录...")
@@ -238,25 +247,18 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
         update(stage="Embedding", current=0, total=len(new_chunks),
                message="加载 embedding 模型...")
         from app.rag.embeddings import LocalHuggingFaceEmbeddings
-        from app.rag.vectorstore import get_vectorstore, clear_vectorstore, chunks_to_documents
-        from app.core.config import settings
+        from app.rag.vectorstore import get_vectorstore, chunks_to_documents
 
         embeddings = LocalHuggingFaceEmbeddings(quantize=quantize)
 
-        if clear_first:
-            update(message="清空向量库...")
-            deleted = clear_vectorstore()
-            logger.info(f"已清空向量库，删除 {deleted} 条")
-            # 同时清空去重记录，避免 clear_first 后去重检查误判
-            cleanup_all()
-            logger.info("已同步清空去重记录")
+        # 5. 先记录去重信息（确保幂等：若进程在入库后崩溃，重试时不会重复写入）
+        add_records_batch(records_to_add)
+        logger.info(f"已记录 {len(records_to_add)} 条去重信息")
 
+        # 6. 写入向量库
         vectorstore = get_vectorstore(embeddings)
-
-        # 使用 chunks_to_documents 统一 metadata 格式（与 process_and_ingest 一致）
         docs = chunks_to_documents(new_chunks)
 
-        # 批量入库，每批上报进度
         batch_size = 100
         ingested = 0
 
@@ -268,11 +270,6 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
             update(current=ingested, total=len(new_chunks),
                    message=f"Embedding {ingested}/{len(new_chunks)}")
 
-        # 5. 记录去重信息
-        add_records_batch(records_to_add)
-        logger.info(f"已记录 {len(records_to_add)} 条去重信息")
-
-        # 6. 完成
         stats = get_vectorstore_stats()
         update(stage="完成", current=len(new_chunks), total=len(new_chunks), done=True,
                message=f"入库完成，新增 {ingested} 条，跳过 {skipped} 条，向量库共 {stats['count']} 条")

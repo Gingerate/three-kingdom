@@ -199,9 +199,6 @@ def query_decomposition(state: RAGState) -> dict:
 问题：汉献帝如何联合世家诛灭董卓？
 {"sub_questions": ["汉献帝时期的朝廷权力结构是怎样的？", "王允在诛董卓事件中起了什么作用？", "吕布为什么背叛董卓？", "世家大族在东汉末年的政治影响力如何？"]}"""
 
-    # 使用指代消解后的问题
-    question = state.get("resolved_question") or state["question"]
-
     response = llm.invoke([
         SystemMessage(content=prompt),
         HumanMessage(content=question),
@@ -470,7 +467,7 @@ def self_reflection(state: RAGState) -> dict:
     ])
 
     data = parse_llm_json(response.content)
-    passed = data.get("passed", True) if data else True  # 解析失败默认通过
+    passed = data.get("passed", False) if data else False  # 解析失败默认不通过，触发重试
 
     return {"reflection_passed": passed}
 
@@ -612,7 +609,9 @@ def run_rag(question: str, session_id: str = "") -> dict:
 
 
 async def run_rag_stream(question: str, session_id: str = ""):
-    """流式运行 Agentic RAG（逐节点输出进度）"""
+    """流式运行 Agentic RAG（逐节点输出进度，不阻塞事件循环）"""
+    import asyncio
+
     graph = get_rag_graph()
 
     initial_state: RAGState = {
@@ -630,17 +629,32 @@ async def run_rag_stream(question: str, session_id: str = ""):
         "sources": [],
     }
 
-    # 使用 stream 模式
-    try:
-        for event in graph.stream(initial_state, stream_mode="updates"):
-            for node_name, updates in event.items():
-                yield {
-                    "node": node_name,
-                    "updates": {k: v for k, v in updates.items() if k != "retrieved_docs"},
-                }
-    except Exception as e:
-        logger.error(f"RAG 流式管线异常: {e}")
-        yield {
-            "node": "error",
-            "updates": {"final_answer": f"抱歉，处理您的问题时出现了错误：{e}", "sources": []},
-        }
+    # 用 asyncio.Queue 桥接同步迭代器与异步生成器，避免阻塞事件循环
+    queue: asyncio.Queue = asyncio.Queue()
+    _SENTINEL = object()
+
+    def _run_sync():
+        try:
+            for event in graph.stream(initial_state, stream_mode="updates"):
+                for node_name, updates in event.items():
+                    queue.put_nowait({
+                        "node": node_name,
+                        "updates": {k: v for k, v in updates.items() if k != "retrieved_docs"},
+                    })
+        except Exception as e:
+            logger.error(f"RAG 流式管线异常: {e}")
+            queue.put_nowait({
+                "node": "error",
+                "updates": {"final_answer": f"抱歉，处理您的问题时出现了错误：{e}", "sources": []},
+            })
+        finally:
+            queue.put_nowait(_SENTINEL)
+
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _run_sync)
+
+    while True:
+        item = await queue.get()
+        if item is _SENTINEL:
+            break
+        yield item

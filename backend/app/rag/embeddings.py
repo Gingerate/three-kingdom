@@ -28,11 +28,15 @@ class LocalHuggingFaceEmbeddings(Embeddings):
         self.quantize = quantize
         self._model = None
         self._tokenizer = None
+        self._load_lock = threading.Lock()
 
     def _load_model(self):
-        """延迟加载模型"""
+        """延迟加载模型（线程安全）"""
         if self._model is not None:
             return
+        with self._load_lock:
+            if self._model is not None:
+                return
 
         from transformers import AutoModel
         from transformers import BertTokenizer

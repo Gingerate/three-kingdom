@@ -468,10 +468,7 @@ function WikiReader({ page, onClose }: {
                     p: ({ children }) => <p className="wiki-p">{children}</p>,
                     ul: ({ children }) => <ul className="wiki-ul">{children}</ul>,
                     ol: ({ children }) => <ol className="wiki-ol">{children}</ol>,
-                    li: ({ children, node }) => {
-                      const isOrdered = (node as unknown as HTMLElement)?.parentElement?.tagName === 'OL';
-                      return <li className={isOrdered ? 'wiki-li-ordered' : 'wiki-li'}>{children}</li>;
-                    },
+                    li: ({ children }) => <li className="wiki-li">{children}</li>,
                     hr: () => <hr className="wiki-hr" />,
                     pre: ({ children }) => <pre className="wiki-pre">{children}</pre>,
                     code: ({ children, className }) => {

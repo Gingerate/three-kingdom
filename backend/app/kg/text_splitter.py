@@ -82,8 +82,8 @@ def split_by_paragraphs(text: str, chunk_size: int | None = None,
                         chunk_overlap: int | None = None) -> list[str]:
     """细切：按段落切分，带滑动窗口 overlap"""
 
-    size = chunk_size or settings.chunk_size
-    overlap = chunk_overlap or settings.chunk_overlap
+    size = chunk_size if chunk_size is not None else settings.chunk_size
+    overlap = chunk_overlap if chunk_overlap is not None else settings.chunk_overlap
 
     # 安全检查：overlap 必须小于 chunk_size，否则滑动窗口会无限循环
     if overlap >= size:

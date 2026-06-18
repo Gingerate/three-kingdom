@@ -118,8 +118,8 @@ def validate_document(content: str, filename: str = "") -> ValidationResult:
 
     # 有效文字占比
     chinese_chars = len(re.findall(r'[一-鿿]', content))
-    english_words = len(re.findall(r'[a-zA-Z]+', content))
-    meaningful_length = chinese_chars + english_words
+    english_chars = len(re.findall(r'[a-zA-Z]', content))
+    meaningful_length = chinese_chars + english_chars
 
     if content_length > 0:
         meaningful_ratio = meaningful_length / content_length
@@ -174,7 +174,7 @@ def validate_document(content: str, filename: str = "") -> ValidationResult:
             details.append(f"重复内容占比 {duplicate_ratio:.1%}，偏高")
 
     # 检测常见转换错误标记
-    error_markers = ['[ERROR]', '[FAILED]', '???', '???', 'Conversion failed']
+    error_markers = ['[ERROR]', '[FAILED]', '???', 'Conversion failed']
     for marker in error_markers:
         if marker.lower() in content.lower():
             return ValidationResult(

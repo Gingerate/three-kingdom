@@ -134,11 +134,11 @@ def distill_and_save(session_ids: list[str] | None = None,
     if not summaries:
         return {"status": "error", "message": "没有可用的知识摘要"}
 
-    # 按 question 去重，保留最新的摘要
+    # 按 question 去重，保留最新的摘要（后出现的覆盖先出现的）
     seen_questions: dict[str, dict] = {}
     for s in summaries:
         q = s.get("question", "").strip()
-        if q and q not in seen_questions:
+        if q:
             seen_questions[q] = s
     summaries = list(seen_questions.values())
 

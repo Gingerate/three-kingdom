@@ -127,12 +127,16 @@ def cleanup_qa_memory(max_size: int = 5000):
         count = collection.count()
 
         if count > max_size:
-            # 获取所有 ID，删除最早的记录
+            # 获取所有 ID 及其 metadata，按时间戳排序后删除最旧的
             excess = count - max_size
-            all_data = collection.get(limit=excess, include=[])
+            all_data = collection.get(include=["metadatas"])
             if all_data["ids"]:
-                collection.delete(ids=all_data["ids"])
-                logger.info(f"已清理 {len(all_data['ids'])} 条旧的 qa_memory 记录")
+                # 按 metadata 中的 created_at 排序（无时间戳的排最前）
+                id_meta_pairs = list(zip(all_data["ids"], all_data["metadatas"]))
+                id_meta_pairs.sort(key=lambda x: x[1].get("created_at", "") if x[1] else "")
+                oldest_ids = [pid for pid, _ in id_meta_pairs[:excess]]
+                collection.delete(ids=oldest_ids)
+                logger.info(f"已清理 {len(oldest_ids)} 条旧的 qa_memory 记录")
     except Exception as e:
         logger.error(f"清理 qa_memory 失败: {e}")
 

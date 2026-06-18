@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from langchain_core.documents import Document
 
 from app.core.config import settings, get_default_device
+
+logger = logging.getLogger(__name__)
 
 
 class LocalReranker:
@@ -16,25 +19,29 @@ class LocalReranker:
         self.device = device or get_default_device()
         self._model = None
         self._tokenizer = None
+        self._load_lock = threading.Lock()
 
     def _load_model(self):
-        """延迟加载模型"""
+        """延迟加载模型（线程安全）"""
         if self._model is not None:
             return
+        with self._load_lock:
+            if self._model is not None:
+                return
 
-        import torch
-        from transformers import AutoTokenizer, AutoModelForSequenceClassification
+            import torch
+            from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-        print(f"正在加载 Reranker 模型: {self.model_path}, 设备: {self.device}")
-        self._tokenizer = AutoTokenizer.from_pretrained(self.model_path)
-        # CUDA 使用 float16 加速，其他设备使用 float32
-        dtype = torch.float16 if self.device == "cuda" else torch.float32
-        self._model = AutoModelForSequenceClassification.from_pretrained(
-            self.model_path,
-            torch_dtype=dtype,
-        ).to(self.device)
-        self._model.eval()
-        print("Reranker 模型加载完成")
+            logger.info(f"正在加载 Reranker 模型: {self.model_path}, 设备: {self.device}")
+            self._tokenizer = AutoTokenizer.from_pretrained(self.model_path)
+            # CUDA 使用 float16 加速，其他设备使用 float32
+            dtype = torch.float16 if self.device == "cuda" else torch.float32
+            self._model = AutoModelForSequenceClassification.from_pretrained(
+                self.model_path,
+                torch_dtype=dtype,
+            ).to(self.device)
+            self._model.eval()
+            logger.info("Reranker 模型加载完成")
 
     def compute_score(self, query: str, passages: list[str]) -> list[float]:
         """计算 query-passage 相关性分数

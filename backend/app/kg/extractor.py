@@ -156,14 +156,18 @@ def parse_extraction_response(response_text: str) -> tuple[list[ExtractedEntity]
     text = response_text.strip()
 
     # 处理 ```json ... ``` 包裹的情况
-    if "```json" in text:
-        start = text.index("```json") + 7
-        end = text.index("```", start)
-        text = text[start:end].strip()
-    elif "```" in text:
-        start = text.index("```") + 3
-        end = text.index("```", start)
-        text = text[start:end].strip()
+    try:
+        if "```json" in text:
+            start = text.index("```json") + 7
+            end = text.index("```", start)
+            text = text[start:end].strip()
+        elif "```" in text:
+            start = text.index("```") + 3
+            end = text.index("```", start)
+            text = text[start:end].strip()
+    except ValueError:
+        # 找不到闭合的 ```，降级使用原始文本
+        pass
 
     try:
         data = json.loads(text)
