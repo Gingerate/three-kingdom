@@ -12,8 +12,8 @@
 
   --ink-100: #1a1a1a;
   --ink-80: #4a4a4a;
-  --ink-60: #777;
-  --ink-40: #aaa;
+  --ink-60: #636363;   /* 对比度 ≥ 5.3:1 on #f7f3ec (WCAG AA) */
+  --ink-40: #767676;   /* 对比度 ≥ 4.5:1 on #f7f3ec (WCAG AA) */
   --ink-20: #d5d0c8;
 
   --vermilion: #b94432;
@@ -75,7 +75,7 @@ body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 9999;
+  z-index: 2000;
   opacity: 0.03;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-repeat: repeat;
@@ -97,7 +97,7 @@ body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 9998;
+  z-index: 1999;
   background: radial-gradient(ellipse at center, transparent 50%, rgba(20,18,15,0.12) 100%);
 }
 
@@ -376,24 +376,6 @@ body {
 }
 
 /* ============================================
-   知识图谱抽屉主题
-   ============================================ */
-.graph-drawer .ant-drawer-content {
-  background: var(--bg-base);
-}
-
-.graph-drawer .ant-drawer-header {
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border);
-}
-
-.graph-drawer .ant-drawer-title {
-  font-family: var(--font-display);
-  font-weight: 700;
-  color: var(--ink-100);
-}
-
-/* ============================================
    消息气泡
    ============================================ */
 .msg {
@@ -459,7 +441,7 @@ body {
 }
 
 .msg-body {
-  max-width: 72%;
+  max-width: min(72%, 640px);
   padding: var(--sp-md) var(--sp-lg);
   line-height: 1.8;
   font-size: 14px;
@@ -658,38 +640,6 @@ body {
   font-family: var(--font-body);
 }
 
-/* 兼容旧类名 - graph-drawer */
-.graph-drawer .ant-drawer-content {
-  background: var(--bg-base);
-}
-
-.graph-drawer .ant-drawer-header {
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border);
-}
-
-.graph-drawer .ant-drawer-title {
-  font-family: var(--font-display);
-  font-weight: 700;
-  color: var(--ink-100);
-}
-
-/* 兼容旧类名 - preview-drawer */
-.preview-drawer .ant-drawer-content {
-  background: var(--bg-base);
-}
-
-.preview-drawer .ant-drawer-header {
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border);
-}
-
-.preview-drawer .ant-drawer-title {
-  font-family: var(--font-display);
-  font-weight: 700;
-  color: var(--ink-100);
-}
-
 /* ============================================
    通用表格主题（水墨风格）
    ============================================ */
@@ -750,67 +700,6 @@ body {
 }
 
 .themed-table .ant-pagination-item-active a {
-  color: var(--vermilion) !important;
-}
-
-/* 兼容旧类名 - 与 themed-table 相同样式 */
-.ingestion-table {
-  margin-top: var(--sp-md);
-}
-
-.ingestion-table .ant-table {
-  background: transparent !important;
-  font-family: var(--font-body);
-}
-
-.ingestion-table .ant-table-thead > tr > th {
-  background: var(--bg-sunken) !important;
-  border-bottom: 2px solid var(--border) !important;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 13px;
-  color: var(--ink-80);
-  padding: 10px 12px !important;
-}
-
-.ingestion-table .ant-table-tbody > tr > td {
-  border-bottom: 1px solid var(--border-faint) !important;
-  padding: 10px 12px !important;
-  font-size: 13px;
-  transition: background var(--t-fast);
-}
-
-.ingestion-table .ant-table-tbody > tr:hover > td {
-  background: var(--bg-hover) !important;
-}
-
-.ingestion-table .ant-table-tbody > tr.ant-table-row-selected > td {
-  background: var(--vermilion-faint) !important;
-}
-
-.ingestion-table .ant-table-cell-row-hover {
-  background: var(--bg-hover) !important;
-}
-
-.ingestion-table .ant-checkbox-wrapper {
-  color: var(--ink-60);
-}
-
-.ingestion-table .ant-checkbox-checked .ant-checkbox-inner {
-  background-color: var(--vermilion);
-  border-color: var(--vermilion);
-}
-
-.ingestion-table .ant-pagination {
-  margin-top: var(--sp-md) !important;
-  font-family: var(--font-body);
-}
-
-.ingestion-table .ant-pagination-item-active {
-  border-color: var(--vermilion) !important;
-}
-
-.ingestion-table .ant-pagination-item-active a {
   color: var(--vermilion) !important;
 }
 
@@ -1020,4 +909,103 @@ body {
   border: 1px solid var(--border);
   max-height: calc(100vh - 200px);
   overflow: auto;
+}
+
+/* ============================================
+   焦点样式（键盘导航）
+   ============================================ */
+.topbar-link:focus-visible,
+.quick-btn:focus-visible,
+.wiki-card:focus-visible,
+.ant-btn:focus-visible {
+  outline: 2px solid var(--vermilion);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   减少动态效果（无障碍）
+   ============================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .film-grain,
+  .particles {
+    display: none;
+  }
+
+  .ink-layer {
+    animation: none !important;
+  }
+}
+
+/* ============================================
+   移动端适配
+   ============================================ */
+@media (max-width: 768px) {
+  .topbar {
+    padding: 0 var(--sp-sm);
+    gap: var(--sp-sm);
+  }
+
+  .topbar-title {
+    display: none;
+  }
+
+  .topbar-divider {
+    display: none;
+  }
+
+  .topbar-nav {
+    gap: 2px;
+    overflow-x: auto;
+  }
+
+  .topbar-link {
+    padding: 4px 8px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .topbar-link .anticon {
+    font-size: 14px;
+  }
+
+  .page-header {
+    padding: 8px 16px;
+  }
+
+  .page-body {
+    padding: 16px;
+  }
+
+  .msg-body {
+    max-width: 88%;
+    padding: var(--sp-sm) var(--sp-md);
+    font-size: 13px;
+  }
+
+  .quick-grid {
+    grid-template-columns: 1fr;
+    max-width: 100%;
+  }
+
+  .welcome-seal {
+    width: 56px;
+    height: 56px;
+    font-size: 28px;
+  }
+
+  .welcome-title {
+    font-size: 18px;
+  }
+
+  .ink-landscape {
+    height: 100px;
+  }
 }

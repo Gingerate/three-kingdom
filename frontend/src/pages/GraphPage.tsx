@@ -119,7 +119,7 @@ export default function GraphPage() {
           lineWidth: 1.5,
           labelText: (d: any) => d.data?.label || '',
           labelFontSize: 10,
-          labelFill: '#777',
+          labelFill: '#636363',
           labelBackground: true,
           labelBackgroundFill: '#f7f3ec',
           labelBackgroundOpacity: 0.9,
@@ -279,7 +279,7 @@ export default function GraphPage() {
         width={380}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        className="graph-drawer"
+        className="themed-drawer"
       >
         {detailLoading ? (
           <Spin />

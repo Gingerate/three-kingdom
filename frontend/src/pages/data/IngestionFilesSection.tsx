@@ -145,7 +145,7 @@ export default function IngestionFilesSection({ onRefresh }: IngestionFilesSecti
       </div>
 
       {/* 文件列表表格 */}
-      <div className="ingestion-table">
+      <div className="themed-table">
         <Table
           dataSource={files}
           rowKey="source_file"

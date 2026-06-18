@@ -204,7 +204,7 @@ export default function RawFilesSection() {
       </div>
 
       {/* 文件列表表格 */}
-      <div className="ingestion-table">
+      <div className="themed-table">
         <Table
           dataSource={filteredAndSortedFiles}
           rowKey="filepath"
