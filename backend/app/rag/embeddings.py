@@ -38,42 +38,42 @@ class LocalHuggingFaceEmbeddings(Embeddings):
             if self._model is not None:
                 return
 
-        from transformers import AutoModel
-        from transformers import BertTokenizer
+            from transformers import AutoModel
+            from transformers import BertTokenizer
 
-        logger.info(f"正在加载 embedding 模型: {self.model_path}")
+            logger.info(f"正在加载 embedding 模型: {self.model_path}")
 
-        # BertTokenizer 只需要 vocab.txt，不依赖 tokenizer_config.json
-        self._tokenizer = BertTokenizer.from_pretrained(self.model_path)
+            # BertTokenizer 只需要 vocab.txt，不依赖 tokenizer_config.json
+            self._tokenizer = BertTokenizer.from_pretrained(self.model_path)
 
-        if self.quantize:
-            try:
-                from bitsandbytes import BitsAndBytesConfig
+            if self.quantize:
+                try:
+                    from bitsandbytes import BitsAndBytesConfig
 
-                bnb_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_compute_dtype=torch.float16,
-                    bnb_4bit_quant_type="nf4",
-                )
-                self._model = AutoModel.from_pretrained(
-                    self.model_path,
-                    quantization_config=bnb_config,
-                    device_map=self.device,
-                )
-            except ImportError:
-                logger.warning("bitsandbytes 未安装，跳过量化，使用 FP16")
+                    bnb_config = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_compute_dtype=torch.float16,
+                        bnb_4bit_quant_type="nf4",
+                    )
+                    self._model = AutoModel.from_pretrained(
+                        self.model_path,
+                        quantization_config=bnb_config,
+                        device_map=self.device,
+                    )
+                except ImportError:
+                    logger.warning("bitsandbytes 未安装，跳过量化，使用 FP16")
+                    self._model = AutoModel.from_pretrained(
+                        self.model_path,
+                        torch_dtype=torch.float16,
+                    ).to(self.device)
+            else:
                 self._model = AutoModel.from_pretrained(
                     self.model_path,
                     torch_dtype=torch.float16,
                 ).to(self.device)
-        else:
-            self._model = AutoModel.from_pretrained(
-                self.model_path,
-                torch_dtype=torch.float16,
-            ).to(self.device)
 
-        self._model.eval()
-        logger.info(f"模型加载完成，目标维度: {self.target_dim}")
+            self._model.eval()
+            logger.info(f"模型加载完成，目标维度: {self.target_dim}")
 
     def _embed(self, text: str) -> list[float]:
         """单条文本 embedding"""

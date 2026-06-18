@@ -21,6 +21,8 @@ def init_db():
     init_dedup_table()
 
     with get_connection() as conn:
+        # WAL 模式是数据库级设置，只需设置一次
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript("""
             -- 实体表：人物
             CREATE TABLE IF NOT EXISTS persons (
@@ -133,8 +135,6 @@ def get_connection():
     """获取数据库连接的上下文管理器"""
     conn = sqlite3.connect(str(get_db_path()), timeout=30)
     conn.row_factory = sqlite3.Row
-    # 启用 WAL 模式，提升并发读写性能
-    conn.execute("PRAGMA journal_mode=WAL")
     try:
         yield conn
         conn.commit()

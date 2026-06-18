@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from app.kg.extractor import ExtractionResult, ExtractedEntity, ExtractedRelation
 from app.models.crud import (
     create_person, create_event, create_force, create_relation,
@@ -150,7 +154,7 @@ def approve_review(review_id: int,
             entity_id_map[f"{etype}:{name}"] = db_id
             entities_written += 1
         except Exception as e:
-            print(f"警告：写入实体 {name} 失败: {e}")
+            logger.warning(f"写入实体 {name} 失败: {e}")
 
     # 写入关系
     relations_written = 0
@@ -183,7 +187,7 @@ def approve_review(review_id: int,
         tgt_id = _lookup_entity_id(tgt_type, tgt_name)
 
         if not src_id or not tgt_id:
-            print(f"警告：跳过关系 {src_name}→{tgt_name}，实体不存在")
+            logger.warning(f"跳过关系 {src_name}→{tgt_name}，实体不存在")
             continue
 
         try:
@@ -198,9 +202,12 @@ def approve_review(review_id: int,
             )
             relations_written += 1
         except Exception as e:
-            print(f"警告：写入关系失败: {e}")
+            logger.warning(f"写入关系失败: {e}")
 
-    # 更新审核状态
+    # 仅当至少有一项写入成功时才标记为 approved
+    if entities_written == 0 and relations_written == 0:
+        return {"success": False, "message": "所有实体和关系写入失败，审核未通过"}
+
     update_review_status(review_id, "approved")
 
     return {

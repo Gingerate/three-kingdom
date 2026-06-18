@@ -104,6 +104,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         });
       },
       () => {
+        // 仅当自己仍是当前活跃流时清理状态（防止旧流回调干扰新流）
+        if (abortRef.current !== controller) return;
         setMessages((prev) => {
           const updated = [...prev];
           const last = updated.length - 1;
@@ -119,6 +121,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       (error) => {
         // 忽略主动取消的错误
         if (error.name === 'AbortError') return;
+        // 仅当自己仍是当前活跃流时清理状态
+        if (abortRef.current !== controller) return;
         setMessages((prev) => {
           const updated = [...prev];
           const last = updated.length - 1;

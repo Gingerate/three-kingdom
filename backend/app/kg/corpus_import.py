@@ -4,8 +4,11 @@
 """
 
 import os
+import logging
 from pathlib import Path
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 from app.core.config import settings
 
@@ -53,12 +56,12 @@ def auto_convert(raw_dir: Path) -> int:
             result = convert_to_md(str(filepath), str(raw_dir))
             if result.success:
                 converted += 1
-                print(f"  ✓ {result.message}")
+                logger.info(f"  ✓ {result.message}")
                 if result.issues:
                     for issue in result.issues:
-                        print(f"    ⚠ {issue}")
+                        logger.warning(f"    ⚠ {issue}")
             else:
-                print(f"  ✗ {result.message}")
+                logger.warning(f"  ✗ {result.message}")
 
     return converted
 
@@ -77,7 +80,7 @@ def load_raw_documents(raw_dir: str | None = None) -> list[RawDocument]:
         for f in raw_path.rglob("*") if f.is_file()
     )
     if has_convertible:
-        print("检测到非标准格式文件，自动转换中...")
+        logger.info("检测到非标准格式文件，自动转换中...")
         auto_convert(raw_path)
 
     # 加载所有可读文本文件
@@ -107,7 +110,7 @@ def load_raw_documents(raw_dir: str | None = None) -> list[RawDocument]:
                     category=category,
                 ))
             except Exception as e:
-                print(f"警告：无法读取文件 {filepath}: {e}")
+                logger.warning(f"无法读取文件 {filepath}: {e}")
 
     return documents
 
@@ -117,7 +120,7 @@ def load_pdf_documents(raw_dir: str | None = None) -> list[RawDocument]:
     try:
         import pdfplumber
     except ImportError:
-        print("警告：pdfplumber 未安装，跳过 PDF 文件")
+        logger.warning("pdfplumber 未安装，跳过 PDF 文件")
         return []
 
     raw_path = Path(raw_dir or settings.raw_data_dir)
@@ -148,7 +151,7 @@ def load_pdf_documents(raw_dir: str | None = None) -> list[RawDocument]:
                     category=category,
                 ))
         except Exception as e:
-            print(f"警告：无法解析 PDF {filepath}: {e}")
+            logger.warning(f"无法解析 PDF {filepath}: {e}")
 
     return documents
 
@@ -163,8 +166,8 @@ def load_all_documents(raw_dir: str | None = None) -> list[RawDocument]:
 
     # 质量门禁：过滤不合格文档
     from app.kg.quality_gate import validate_documents
-    print(f"\n质量检查：{len(docs)} 个文档")
+    logger.info(f"质量检查：{len(docs)} 个文档")
     passed_docs, report = validate_documents(docs)
-    print(report.summary())
+    logger.info(report.summary())
 
     return passed_docs

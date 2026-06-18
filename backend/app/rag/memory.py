@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
@@ -92,6 +93,7 @@ def store_summaries_to_vectorstore(summaries: list[str], session_id: str,
         from app.rag.vectorstore import get_vectorstore
         from langchain_core.documents import Document
 
+        now = datetime.now().isoformat()
         docs = [
             Document(
                 page_content=s,
@@ -99,6 +101,7 @@ def store_summaries_to_vectorstore(summaries: list[str], session_id: str,
                     "source": "qa_memory",
                     "session_id": session_id,
                     "original_sources": ", ".join(sources or []),
+                    "created_at": now,
                 },
             )
             for s in summaries

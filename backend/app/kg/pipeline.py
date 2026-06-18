@@ -111,13 +111,12 @@ def process_and_ingest(raw_dir: str | None = None,
         from app.rag.embeddings import LocalHuggingFaceEmbeddings
         embeddings = LocalHuggingFaceEmbeddings(quantize=quantize)
 
-        # 5. 先记录去重信息（确保幂等：若进程在入库后崩溃，重试时不会重复写入）
-        add_records_batch(records_to_add)
-        logger.info(f"已记录 {len(records_to_add)} 条去重信息")
-
-        # 6. Embedding + 写入向量库
         ingested = add_chunks_to_vectorstore(new_chunks, embeddings)
         logger.info(f"成功写入 {ingested} 条到向量库")
+
+        # 5. 记录去重信息（向量库写入成功后再记录，若此步失败重试仅产生重复，不会丢数据）
+        add_records_batch(records_to_add)
+        logger.info(f"已记录 {len(records_to_add)} 条去重信息")
 
         # 7. 统计
         stats = get_vectorstore_stats(embeddings)
@@ -251,11 +250,7 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
 
         embeddings = LocalHuggingFaceEmbeddings(quantize=quantize)
 
-        # 5. 先记录去重信息（确保幂等：若进程在入库后崩溃，重试时不会重复写入）
-        add_records_batch(records_to_add)
-        logger.info(f"已记录 {len(records_to_add)} 条去重信息")
-
-        # 6. 写入向量库
+        # 5. 写入向量库
         vectorstore = get_vectorstore(embeddings)
         docs = chunks_to_documents(new_chunks)
 
@@ -269,6 +264,10 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
 
             update(current=ingested, total=len(new_chunks),
                    message=f"Embedding {ingested}/{len(new_chunks)}")
+
+        # 6. 记录去重信息（向量库写入成功后再记录，若此步失败重试仅产生重复，不会丢数据）
+        add_records_batch(records_to_add)
+        logger.info(f"已记录 {len(records_to_add)} 条去重信息")
 
         stats = get_vectorstore_stats()
         update(stage="完成", current=len(new_chunks), total=len(new_chunks), done=True,
