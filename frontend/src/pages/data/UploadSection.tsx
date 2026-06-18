@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Upload, message } from 'antd';
 import { InboxOutlined } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
@@ -5,39 +6,21 @@ import { uploadAndIngest } from '../../services/api';
 import Section from './Section';
 
 interface UploadSectionProps {
-  loading: boolean;
-  setLoading: (loading: boolean) => void;
-  setProgress: (progress: number) => void;
-  setProgressStatus: (status: 'active' | 'success' | 'exception') => void;
-  setStage: (stage: string) => void;
-  setProgressText: (text: string) => void;
   onSuccess?: () => void;
 }
 
-/** 上传文件区域 */
-export default function UploadSection({
-  loading,
-  setLoading,
-  setProgress,
-  setProgressStatus,
-  setStage,
-  setProgressText,
-  onSuccess,
-}: UploadSectionProps) {
+/** 上传文件区域（自行管理上传状态） */
+export default function UploadSection({ onSuccess }: UploadSectionProps) {
+  const [loading, setLoading] = useState(false);
+
   const handleUpload: UploadProps['customRequest'] = async (options) => {
     const { file, onSuccess: onUploadSuccess, onError } = options;
     setLoading(true);
-    setProgress(0);
-    setProgressStatus('active');
-    setStage('上传中');
 
     try {
       const data = await uploadAndIngest(file as File);
 
       if (data.status === 'ok') {
-        setProgress(100);
-        setProgressStatus('success');
-        setProgressText('入库完成');
         message.success(`${data.filename} 已入库，${data.result.chunks} 个文本块`);
         onUploadSuccess?.(data);
         onSuccess?.();
@@ -45,8 +28,6 @@ export default function UploadSection({
         throw new Error(data.message || '上传失败');
       }
     } catch (err: any) {
-      setProgressStatus('exception');
-      setProgressText('入库失败');
       message.error(err.message || '上传失败');
       onError?.(err);
     } finally {

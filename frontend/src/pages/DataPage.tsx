@@ -44,15 +44,7 @@ export default function DataPage() {
         <StatsSection count={stats?.count} collectionName={stats?.collection_name} />
 
         {/* 上传 */}
-        <UploadSection
-          loading={false}
-          setLoading={() => {}}
-          setProgress={() => {}}
-          setProgressStatus={() => {}}
-          setStage={() => {}}
-          setProgressText={() => {}}
-          onSuccess={fetchStats}
-        />
+        <UploadSection onSuccess={fetchStats} />
 
         {/* 批量入库 */}
         <IngestSection onSuccess={fetchStats} />

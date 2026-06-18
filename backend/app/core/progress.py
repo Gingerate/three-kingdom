@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 import asyncio
+import logging
 import time
 import threading
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass, field
 
 
@@ -171,10 +174,10 @@ class ProgressTracker:
                 if state.done and (now - state.started_at) > self.AUTO_CLEANUP_SECONDS:
                     expired_ids.append(task_id)
 
-        # 在锁外执行清理，避免死锁
+        # 在锁外执行清理（cleanup 是幂等操作，TOCTOU 无实际影响）
         for task_id in expired_ids:
             self.cleanup(task_id)
-            print(f"[ProgressTracker] 自动清理过期任务: {task_id}")
+            logger.info(f"自动清理过期任务: {task_id}")
 
 
 # 全局单例

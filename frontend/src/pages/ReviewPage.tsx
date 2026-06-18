@@ -61,7 +61,7 @@ export default function ReviewPage() {
   };
 
   const handleReject = async (reviewId: number) => {
-    let reason = '';
+    const reasonRef = { current: '' };
     Modal.confirm({
       title: '拒绝审核项',
       content: (
@@ -69,7 +69,7 @@ export default function ReviewPage() {
           <p>请输入拒绝原因（可选）：</p>
           <Input.TextArea
             rows={3}
-            onChange={(e) => { reason = e.target.value; }}
+            onChange={(e) => { reasonRef.current = e.target.value; }}
             placeholder="拒绝原因..."
           />
         </div>
@@ -79,7 +79,7 @@ export default function ReviewPage() {
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
-          await rejectReview(reviewId, reason);
+          await rejectReview(reviewId, reasonRef.current);
           message.success('已拒绝');
           loadItems();
         } catch {
