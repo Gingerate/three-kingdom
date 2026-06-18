@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import TypedDict, Annotated
 from operator import add as add_messages
@@ -13,6 +14,8 @@ from langgraph.graph import StateGraph, END
 from app.core.config import settings
 from app.prompts import load_prompt
 from app.utils.parsers import parse_llm_json
+
+logger = logging.getLogger(__name__)
 
 
 # ==================== 状态定义 ====================
@@ -41,23 +44,25 @@ class RAGState(TypedDict):
 
 # ==================== LLM 实例（单例缓存） ====================
 
-_llm_cache: dict[float, ChatOpenAI] = {}
+_llm_cache: dict[str, ChatOpenAI] = {}
 _llm_lock = threading.Lock()
 
 
 def get_llm(temperature: float = 0.1) -> ChatOpenAI:
     """获取 LLM 实例（按 temperature 缓存单例）"""
-    if temperature not in _llm_cache:
+    # 使用字符串 key 避免浮点数精度问题
+    cache_key = f"{temperature:.2f}"
+    if cache_key not in _llm_cache:
         with _llm_lock:
-            if temperature not in _llm_cache:
-                _llm_cache[temperature] = ChatOpenAI(
+            if cache_key not in _llm_cache:
+                _llm_cache[cache_key] = ChatOpenAI(
                     model=settings.llm_model,
                     api_key=settings.llm_api_key,
                     base_url=settings.llm_base_url,
                     temperature=temperature,
                     max_tokens=4096,
                 )
-    return _llm_cache[temperature]
+    return _llm_cache[cache_key]
 
 
 # ==================== 节点函数 ====================
@@ -133,7 +138,7 @@ def resolve_coreference(state: RAGState) -> dict:
         if resolved and 0.5 * len(question) <= len(resolved) <= 2 * len(question):
             return {"resolved_question": resolved}
     except Exception as e:
-        print(f"指代消解失败: {e}")
+        logger.warning(f"指代消解失败: {e}")
 
     return {"resolved_question": question}
 
@@ -218,12 +223,13 @@ def retrieve(state: RAGState) -> dict:
     # 使用指代消解后的问题，如果 sub_questions 为空（简单问题路由跳过了 decompose）
     resolved_question = state.get("resolved_question") or state["question"]
     questions = state["sub_questions"] or [resolved_question]
+    session_id = state.get("session_id", "")
 
     for question in questions:
         # 检索主知识库
         docs = search_vectorstore(question, k=10)
-        # 检索对话记忆（qa_memory collection）
-        memory_docs = search_memory(question, k=5)
+        # 检索对话记忆（qa_memory collection，按 session_id 过滤）
+        memory_docs = search_memory(question, k=5, session_id=session_id)
         for doc in docs + memory_docs:
             content_hash = hash(doc.page_content)
             if content_hash not in seen_contents:
@@ -276,16 +282,26 @@ def _search_knowledge_graph(questions: list[str]) -> list[dict]:
                             "category": "knowledge_graph",
                         })
 
-                # 搜索匹配的关系
+                # 搜索匹配的关系（使用唯一别名避免覆盖）
                 rows = conn.execute(
-                    """SELECT r.*, s.name as src_name, t.name as tgt_name
+                    """SELECT r.*,
+                         CASE r.source_type
+                           WHEN 'person' THEN sp.name
+                           WHEN 'event' THEN se.name
+                           WHEN 'force' THEN sf.name
+                         END as src_name,
+                         CASE r.target_type
+                           WHEN 'person' THEN tp.name
+                           WHEN 'event' THEN te.name
+                           WHEN 'force' THEN tf.name
+                         END as tgt_name
                        FROM relations r
-                       LEFT JOIN persons s ON r.source_type='person' AND r.source_id=s.id
-                       LEFT JOIN events s ON r.source_type='event' AND r.source_id=s.id
-                       LEFT JOIN forces s ON r.source_type='force' AND r.source_id=s.id
-                       LEFT JOIN persons t ON r.target_type='person' AND r.target_id=t.id
-                       LEFT JOIN events t ON r.target_type='event' AND r.target_id=t.id
-                       LEFT JOIN forces t ON r.target_type='force' AND r.target_id=t.id
+                       LEFT JOIN persons sp ON r.source_type='person' AND r.source_id=sp.id
+                       LEFT JOIN events se ON r.source_type='event' AND r.source_id=se.id
+                       LEFT JOIN forces sf ON r.source_type='force' AND r.source_id=sf.id
+                       LEFT JOIN persons tp ON r.target_type='person' AND r.target_id=tp.id
+                       LEFT JOIN events te ON r.target_type='event' AND r.target_id=te.id
+                       LEFT JOIN forces tf ON r.target_type='force' AND r.target_id=tf.id
                        WHERE r.description LIKE ?
                        LIMIT 10""",
                     [f"%{question[:20]}%"],
@@ -304,7 +320,7 @@ def _search_knowledge_graph(questions: list[str]) -> list[dict]:
                         "category": "knowledge_graph",
                     })
     except Exception as e:
-        print(f"知识图谱检索失败: {e}")
+        logger.warning(f"知识图谱检索失败: {e}")
 
     return results[:10]  # 限制返回数量
 
@@ -343,7 +359,7 @@ def relevance_grading(state: RAGState) -> dict:
         return {"graded_docs": graded}
 
     except Exception as e:
-        print(f"Reranker 不可用，使用 LLM 评分: {e}")
+        logger.warning(f"Reranker 不可用，使用 LLM 评分: {e}")
 
     # Fallback：用 LLM 评分
     llm = get_llm()
@@ -404,21 +420,16 @@ def generate(state: RAGState) -> dict:
 
     identity = load_prompt("identity")
     rules = load_prompt("rules")
-    prompt = f"""{identity}
-
-{rules}
-
-## 参考资料
-{{context}}
-
-## 用户问题
-{{question}}"""
 
     # 使用指代消解后的问题
     question = state.get("resolved_question") or state["question"]
 
+    # 使用 replace 而非 format，避免提示词中的花括号被误解析
+    prompt = f"{identity}\n\n{rules}\n\n## 参考资料\n{{CONTEXT}}\n\n## 用户问题\n{{QUESTION}}"
+    prompt = prompt.replace("{CONTEXT}", context).replace("{QUESTION}", question)
+
     response = llm.invoke([
-        SystemMessage(content=prompt.format(context=context, question=question)),
+        SystemMessage(content=prompt),
         HumanMessage(content="请回答"),
     ])
 
@@ -576,6 +587,7 @@ def run_rag(question: str, session_id: str = "") -> dict:
         "generation": "",
         "reflection_passed": False,
         "retry_count": 0,
+        "resolved_question": "",
         "final_answer": "",
         "sources": [],
     }
@@ -583,7 +595,7 @@ def run_rag(question: str, session_id: str = "") -> dict:
     try:
         result = graph.invoke(initial_state)
     except Exception as e:
-        print(f"RAG 管线异常: {e}")
+        logger.error(f"RAG 管线异常: {e}")
         return {
             "answer": f"抱歉，处理您的问题时出现了错误：{e}",
             "sources": [],
@@ -613,6 +625,7 @@ async def run_rag_stream(question: str, session_id: str = ""):
         "generation": "",
         "reflection_passed": False,
         "retry_count": 0,
+        "resolved_question": "",
         "final_answer": "",
         "sources": [],
     }
@@ -626,7 +639,7 @@ async def run_rag_stream(question: str, session_id: str = ""):
                     "updates": {k: v for k, v in updates.items() if k != "retrieved_docs"},
                 }
     except Exception as e:
-        print(f"RAG 流式管线异常: {e}")
+        logger.error(f"RAG 流式管线异常: {e}")
         yield {
             "node": "error",
             "updates": {"final_answer": f"抱歉，处理您的问题时出现了错误：{e}", "sources": []},

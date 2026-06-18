@@ -1,6 +1,8 @@
 """API 路由注册"""
 
-from fastapi import APIRouter, Query, UploadFile, File
+import os
+import logging
+from fastapi import APIRouter, Query, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import json
@@ -8,7 +10,29 @@ import uuid
 
 from app.models.schemas import ChatRequest
 
+logger = logging.getLogger(__name__)
 api_router = APIRouter()
+
+# 表名白名单，防止 SQL 注入
+_VALID_TABLES = {"persons", "events", "forces"}
+_VALID_TYPES = {"person", "event", "force"}
+
+
+def _safe_table_name(entity_type: str) -> str:
+    """校验实体类型并返回安全的表名"""
+    if entity_type not in _VALID_TYPES:
+        raise HTTPException(status_code=400, detail=f"无效的实体类型: {entity_type}，可选: {_VALID_TYPES}")
+    return f"{entity_type}s"
+
+
+def _safe_path(raw_dir, filepath: str):
+    """校验文件路径，防止路径遍历攻击"""
+    from pathlib import Path
+    file_path = (raw_dir / filepath).resolve()
+    raw_resolved = raw_dir.resolve()
+    if not str(file_path).startswith(str(raw_resolved)):
+        raise HTTPException(status_code=400, detail="非法文件路径")
+    return file_path
 
 
 # ==================== 基础 ====================
@@ -66,7 +90,7 @@ async def chat_stream(req: ChatRequest):
                         route=route,
                     )
                 except Exception as e:
-                    print(f"记忆存储失败: {e}")
+                    logger.error(f"记忆存储失败: {e}")
             asyncio.create_task(_save_memory())
 
     return StreamingResponse(
@@ -134,7 +158,7 @@ async def get_wiki_page_detail(page_id: int):
     from app.core.database import get_wiki_page
     page = get_wiki_page(page_id)
     if not page:
-        return {"status": "error", "message": "页面不存在"}
+        raise HTTPException(status_code=404, detail="页面不存在")
     return page
 
 
@@ -151,7 +175,7 @@ async def update_wiki_page(page_id: int, req: WikiUpdateRequest):
     from app.core.database import update_wiki_page, get_wiki_page
     page = get_wiki_page(page_id)
     if not page:
-        return {"status": "error", "message": "页面不存在"}
+        raise HTTPException(status_code=404, detail="页面不存在")
     update_wiki_page(page_id, title=req.title, content=req.content, topic=req.topic)
     return {"status": "ok", "message": "更新成功"}
 
@@ -162,7 +186,7 @@ async def delete_wiki_page(page_id: int):
     from app.core.database import delete_wiki_page, get_wiki_page
     page = get_wiki_page(page_id)
     if not page:
-        return {"status": "error", "message": "页面不存在"}
+        raise HTTPException(status_code=404, detail="页面不存在")
     delete_wiki_page(page_id)
     return {"status": "ok", "message": "删除成功"}
 
@@ -241,10 +265,13 @@ async def upload_and_ingest(file: UploadFile = File(...)):
     from pathlib import Path
     from app.core.config import settings
 
-    # 保存到 raw 目录
+    # 保存到 raw 目录（安全处理文件名）
     raw_dir = Path(settings.raw_data_dir)
     raw_dir.mkdir(parents=True, exist_ok=True)
-    file_path = raw_dir / file.filename
+    safe_filename = os.path.basename(file.filename) if file.filename else "unnamed"
+    if not safe_filename:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+    file_path = raw_dir / safe_filename
 
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
@@ -311,7 +338,7 @@ async def delete_ingestion_file(source_file: str):
         vectorstore = get_vectorstore()
         vectorstore.delete(where={"source": source_file})
     except Exception as e:
-        print(f"删除向量库记录失败: {e}")
+        logger.error(f"删除向量库记录失败: {e}")
 
     return {"status": "ok", "deleted_file": source_file}
 
@@ -338,13 +365,13 @@ async def batch_delete_ingestion_files(req: BatchDeleteRequest):
             vectorstore.delete(where={"source": source_file})
         vector_delete_ok = True
     except Exception as e:
-        print(f"删除向量库记录失败: {e}")
+        logger.error(f"删除向量库记录失败: {e}")
 
     # 再删除去重记录
     if vector_delete_ok:
         delete_records_by_files(req.files)
     else:
-        print("警告：向量库删除失败，保留去重记录以避免重复入库")
+        logger.warning("向量库删除失败，保留去重记录以避免重复入库")
 
     return {"status": "ok", "deleted_count": len(req.files)}
 
@@ -416,10 +443,10 @@ async def convert_file(req: ConvertRequest):
     from app.tools.translator import convert_to_md
 
     raw_dir = Path(settings.raw_data_dir)
-    file_path = raw_dir / req.filepath
+    file_path = _safe_path(raw_dir, req.filepath)
 
     if not file_path.exists():
-        return {"status": "error", "message": "文件不存在"}
+        raise HTTPException(status_code=404, detail="文件不存在")
 
     result = convert_to_md(str(file_path), str(raw_dir))
 
@@ -437,10 +464,10 @@ async def delete_raw_file(filepath: str):
     from app.core.config import settings
 
     raw_dir = Path(settings.raw_data_dir)
-    file_path = raw_dir / filepath
+    file_path = _safe_path(raw_dir, filepath)
 
     if not file_path.exists():
-        return {"status": "error", "message": "文件不存在"}
+        raise HTTPException(status_code=404, detail="文件不存在")
 
     filename = file_path.stem  # 不含扩展名的文件名
 
@@ -450,14 +477,14 @@ async def delete_raw_file(filepath: str):
         vectorstore = get_vectorstore()
         vectorstore.delete(where={"source": filename})
     except Exception as e:
-        print(f"删除向量库记录失败: {e}")
+        logger.error(f"删除向量库记录失败: {e}")
 
     # 2. 删除去重记录
     try:
         from app.kg.dedup import delete_records_by_file
         delete_records_by_file(filename)
     except Exception as e:
-        print(f"删除去重记录失败: {e}")
+        logger.error(f"删除去重记录失败: {e}")
 
     # 3. 删除原始文件
     file_path.unlink()
@@ -477,10 +504,10 @@ async def preview_file(filepath: str):
     from app.core.config import settings
 
     raw_dir = Path(settings.raw_data_dir)
-    file_path = raw_dir / filepath
+    file_path = _safe_path(raw_dir, filepath)
 
     if not file_path.exists():
-        return {"status": "error", "message": "文件不存在"}
+        raise HTTPException(status_code=404, detail="文件不存在")
 
     # 检查是否为二进制文件
     binary_extensions = {'.pdf', '.epub', '.docx', '.doc', '.xls', '.xlsx', '.ppt', '.pptx'}
@@ -534,7 +561,7 @@ async def extract_knowledge(req: ExtractRequest):
     from app.kg.review import add_to_review_queue
 
     if not req.text:
-        return {"status": "error", "message": "请提供 text 参数"}
+        raise HTTPException(status_code=400, detail="请提供 text 参数")
 
     result = extract_from_text(req.text)
     review_id = add_to_review_queue(result)
@@ -645,7 +672,7 @@ async def get_review_detail(review_id: int):
     from app.kg.review import get_review_detail
     item = get_review_detail(review_id)
     if not item:
-        return {"status": "error", "message": f"审核项 {review_id} 不存在"}
+        raise HTTPException(status_code=404, detail=f"审核项 {review_id} 不存在")
     return item
 
 
@@ -782,21 +809,24 @@ async def search_graph(
     """搜索图谱中的实体"""
     from app.core.database import get_connection
 
-    VALID_TYPES = {"person", "event", "force"}
-    if entity_type and entity_type not in VALID_TYPES:
-        return {"status": "error", "message": f"无效的实体类型: {entity_type}，可选: {VALID_TYPES}"}
+    if entity_type and entity_type not in _VALID_TYPES:
+        raise HTTPException(status_code=400, detail=f"无效的实体类型: {entity_type}，可选: {_VALID_TYPES}")
+
+    # 转义 LIKE 通配符
+    escaped_q = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     with get_connection() as conn:
         if entity_type:
-            tables = [f"{entity_type}s"]
+            tables = [_safe_table_name(entity_type)]
         else:
             tables = ["persons", "events", "forces"]
 
         results = []
         for t in tables:
+            # 表名来自白名单，安全
             singular = t.rstrip("s")
             rows = conn.execute(
-                f"SELECT * FROM {t} WHERE name LIKE ?", [f"%{q}%"]
+                f"SELECT * FROM {t} WHERE name LIKE ?", [f"%{escaped_q}%"]
             ).fetchall()
             for row in rows:
                 row_dict = dict(row)
@@ -811,15 +841,11 @@ async def get_entity_detail(entity_type: str, entity_id: int):
     """获取实体详情及其关系（关联实体名称）"""
     from app.core.database import get_connection
 
-    VALID_TYPES = {"person", "event", "force"}
-    if entity_type not in VALID_TYPES:
-        return {"status": "error", "message": f"无效的实体类型: {entity_type}，可选: {VALID_TYPES}"}
-
-    table = f"{entity_type}s"
+    table = _safe_table_name(entity_type)
     with get_connection() as conn:
         row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", [entity_id]).fetchone()
         if not row:
-            return {"status": "error", "message": "实体不存在"}
+            raise HTTPException(status_code=404, detail="实体不存在")
         entity = dict(row)
 
         # 查询关系并关联实体名称
@@ -831,15 +857,23 @@ async def get_entity_detail(entity_type: str, entity_id: int):
         relations = []
         for r in rows:
             r_dict = dict(r)
-            # 查询源实体名称
-            src_table = f"{r_dict['source_type']}s"
-            src_row = conn.execute(f"SELECT name FROM {src_table} WHERE id = ?", [r_dict['source_id']]).fetchone()
-            r_dict['source_name'] = src_row['name'] if src_row else str(r_dict['source_id'])
+            # 查询源实体名称（表名来自数据库，需校验）
+            src_type = r_dict['source_type']
+            if src_type in _VALID_TYPES:
+                src_table = f"{src_type}s"
+                src_row = conn.execute(f"SELECT name FROM {src_table} WHERE id = ?", [r_dict['source_id']]).fetchone()
+                r_dict['source_name'] = src_row['name'] if src_row else str(r_dict['source_id'])
+            else:
+                r_dict['source_name'] = str(r_dict['source_id'])
 
             # 查询目标实体名称
-            tgt_table = f"{r_dict['target_type']}s"
-            tgt_row = conn.execute(f"SELECT name FROM {tgt_table} WHERE id = ?", [r_dict['target_id']]).fetchone()
-            r_dict['target_name'] = tgt_row['name'] if tgt_row else str(r_dict['target_id'])
+            tgt_type = r_dict['target_type']
+            if tgt_type in _VALID_TYPES:
+                tgt_table = f"{tgt_type}s"
+                tgt_row = conn.execute(f"SELECT name FROM {tgt_table} WHERE id = ?", [r_dict['target_id']]).fetchone()
+                r_dict['target_name'] = tgt_row['name'] if tgt_row else str(r_dict['target_id'])
+            else:
+                r_dict['target_name'] = str(r_dict['target_id'])
 
             relations.append(r_dict)
 

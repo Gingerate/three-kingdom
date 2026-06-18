@@ -4,6 +4,7 @@ import { InboxOutlined, SyncOutlined, DatabaseOutlined, FileTextOutlined, CloudU
 import type { UploadProps } from 'antd';
 import InkProgress from '../components/InkProgress';
 import {
+  API_BASE,
   getStats,
   getIngestionFiles,
   deleteIngestionFile,
@@ -48,7 +49,8 @@ export default function DataPage() {
   const [ingestionFiles, setIngestionFiles] = useState<IngestionFile[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const ingestEsRef = useRef<EventSource | null>(null);
+  const extractEsRef = useRef<EventSource | null>(null);
 
   // 批量抽取状态
   const [extractLoading, setExtractLoading] = useState(false);
@@ -69,6 +71,20 @@ export default function DataPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => { fetchStats(); fetchIngestionFiles(); fetchRawFiles(); }, []);
+
+  // 组件卸载时清理 SSE 连接
+  useEffect(() => {
+    return () => {
+      if (ingestEsRef.current) {
+        ingestEsRef.current.close();
+        ingestEsRef.current = null;
+      }
+      if (extractEsRef.current) {
+        extractEsRef.current.close();
+        extractEsRef.current = null;
+      }
+    };
+  }, []);
 
   const fetchStats = async () => {
     try {
@@ -190,7 +206,7 @@ export default function DataPage() {
 
   // 过滤和排序原始文件
   const filteredAndSortedFiles = useMemo(() => {
-    let result = rawFiles;
+    let result = [...rawFiles];
 
     // 搜索过滤
     if (fileSearch) {
@@ -204,7 +220,7 @@ export default function DataPage() {
       result = result.filter(f => f.status === fileStatusFilter);
     }
 
-    // 排序
+    // 排序（使用 [...result] 避免原地修改）
     result.sort((a, b) => {
       let cmp = 0;
       if (fileSortField === 'filename') {
@@ -223,14 +239,18 @@ export default function DataPage() {
   /** 监听 SSE 进度 */
   const listenProgress = (taskId: string) => {
     console.log('[SSE] 开始监听任务进度:', taskId);
-    const es = new EventSource(`http://localhost:8000/api/ingest/progress/${taskId}`);
-    eventSourceRef.current = es;
+    // 关闭之前的连接（如果有）
+    if (ingestEsRef.current) {
+      ingestEsRef.current.close();
+    }
+    const es = new EventSource(`${API_BASE}/ingest/progress/${taskId}`);
+    ingestEsRef.current = es;
 
     es.onmessage = (e) => {
       if (e.data === '[DONE]') {
         console.log('[SSE] 收到完成信号');
         es.close();
-        eventSourceRef.current = null;
+        ingestEsRef.current = null;
         return;
       }
       try {
@@ -254,7 +274,7 @@ export default function DataPage() {
           }
           setLoading(false);
           es.close();
-          eventSourceRef.current = null;
+          ingestEsRef.current = null;
         }
       } catch (err) {
         console.error('[SSE] 解析数据失败:', err);
@@ -264,7 +284,7 @@ export default function DataPage() {
     es.onerror = (err) => {
       console.error('[SSE] 连接错误:', err);
       es.close();
-      eventSourceRef.current = null;
+      ingestEsRef.current = null;
       // 恢复 UI 状态，避免永久卡在"处理中..."
       setLoading(false);
       setProgressStatus('exception');
@@ -331,14 +351,18 @@ export default function DataPage() {
   /** 监听批量抽取 SSE 进度 */
   const listenExtractProgress = (taskId: string) => {
     console.log('[SSE] 开始监听批量抽取进度:', taskId);
-    const es = new EventSource(`http://localhost:8000/api/ingest/progress/${taskId}`);
-    eventSourceRef.current = es;
+    // 关闭之前的连接（如果有）
+    if (extractEsRef.current) {
+      extractEsRef.current.close();
+    }
+    const es = new EventSource(`${API_BASE}/ingest/progress/${taskId}`);
+    extractEsRef.current = es;
 
     es.onmessage = (e) => {
       if (e.data === '[DONE]') {
         console.log('[SSE] 收到完成信号');
         es.close();
-        eventSourceRef.current = null;
+        extractEsRef.current = null;
         return;
       }
       try {
@@ -360,7 +384,7 @@ export default function DataPage() {
           }
           setExtractLoading(false);
           es.close();
-          eventSourceRef.current = null;
+          extractEsRef.current = null;
         }
       } catch (err) {
         console.error('[SSE] 解析数据失败:', err);
@@ -370,7 +394,7 @@ export default function DataPage() {
     es.onerror = (err) => {
       console.error('[SSE] 连接错误:', err);
       es.close();
-      eventSourceRef.current = null;
+      extractEsRef.current = null;
       setExtractLoading(false);
       setExtractProgressStatus('exception');
       setExtractProgressText('连接中断，请重试');

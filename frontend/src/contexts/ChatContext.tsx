@@ -27,15 +27,30 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [streamStatus, setStreamStatus] = useState('');
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const abortRef = useRef<AbortController | null>(null);
+  const loadingRef = useRef(loading);
+  const sessionIdRef = useRef(sessionId);
+
+  // 保持 ref 与 state 同步
+  loadingRef.current = loading;
+  sessionIdRef.current = sessionId;
 
   const handleSend = useCallback(async (text?: string) => {
     // 取消上一次未完成的流
     if (abortRef.current) {
+      // 先结束上一条流式消息的状态
+      setMessages((prev) => {
+        const updated = [...prev];
+        const last = updated.length - 1;
+        if (last >= 0 && updated[last].role === 'assistant' && updated[last].isStreaming) {
+          updated[last] = { ...updated[last], isStreaming: false };
+        }
+        return updated;
+      });
       abortRef.current.abort();
     }
 
     const question = (text || '').trim();
-    if (!question || loading) return;
+    if (!question || loadingRef.current) return;
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -46,10 +61,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     await chatStream(
       question,
-      sessionId,
+      sessionIdRef.current,
       (event: StreamEvent) => {
         // 捕获后端返回的 session_id
-        if (event.session_id && !sessionId) {
+        if (event.session_id && !sessionIdRef.current) {
           setSessionId(event.session_id);
         }
         const { node, updates } = event;
@@ -119,7 +134,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       },
       controller.signal,
     );
-  }, [loading, sessionId]);
+  }, []);
 
   const clearMessages = useCallback(() => {
     if (abortRef.current) {

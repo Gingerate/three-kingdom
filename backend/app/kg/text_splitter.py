@@ -85,6 +85,10 @@ def split_by_paragraphs(text: str, chunk_size: int | None = None,
     size = chunk_size or settings.chunk_size
     overlap = chunk_overlap or settings.chunk_overlap
 
+    # 安全检查：overlap 必须小于 chunk_size，否则滑动窗口会无限循环
+    if overlap >= size:
+        overlap = max(0, size // 4)
+
     # 先按段落（空行/换行）切分
     paragraphs = re.split(r'\n\s*\n|\n', text)
     paragraphs = [p.strip() for p in paragraphs if p.strip()]
@@ -216,11 +220,15 @@ def llm_analyze_chapter(chapter_text: str, chapter_name: str) -> dict:
 
     try:
         text = response.content.strip()
-        # 提取 JSON
+        # 提取 JSON（修复：第二次搜索需从第一个 ``` 之后开始）
         if "```json" in text:
-            text = text[text.index("```json") + 7:text.index("```")].strip()
+            start = text.index("```json") + 7
+            end = text.index("```", start)
+            text = text[start:end].strip()
         elif "```" in text:
-            text = text[text.index("```") + 3:text.index("```")].strip()
+            start = text.index("```") + 3
+            end = text.index("```", start)
+            text = text[start:end].strip()
 
         result = json.loads(text)
         return {

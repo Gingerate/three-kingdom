@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.core.config import settings
 from app.core.database import save_message, save_knowledge_summary
 from app.utils.parsers import parse_llm_json
+
+logger = logging.getLogger(__name__)
 
 
 # ==================== 对话存储 ====================
@@ -72,7 +75,7 @@ def extract_knowledge(question: str, answer: str) -> list[str]:
         # 过滤空字符串
         return [s for s in summaries if isinstance(s, str) and s.strip()]
     except Exception as e:
-        print(f"知识提取失败: {type(e).__name__}: {e}")
+        logger.warning(f"知识提取失败: {type(e).__name__}: {e}")
         return []
 
 
@@ -103,12 +106,35 @@ def store_summaries_to_vectorstore(summaries: list[str], session_id: str,
 
         vectorstore = get_vectorstore(collection_name="qa_memory")
         vectorstore.add_documents(docs)
-        print(f"已将 {len(summaries)} 条摘要存入 qa_memory 向量库")
+        logger.info(f"已将 {len(summaries)} 条摘要存入 qa_memory 向量库")
     except Exception as e:
-        print(f"存入向量库失败: {e}")
+        logger.error(f"存入向量库失败: {e}")
 
 
 # ==================== 完整的记忆流程 ====================
+
+
+def cleanup_qa_memory(max_size: int = 5000):
+    """清理 qa_memory 向量库，保留最新的 max_size 条记录
+
+    Args:
+        max_size: 最大保留记录数
+    """
+    try:
+        from app.rag.vectorstore import get_vectorstore
+        vectorstore = get_vectorstore(collection_name="qa_memory")
+        collection = vectorstore._collection
+        count = collection.count()
+
+        if count > max_size:
+            # 获取所有 ID，删除最早的记录
+            excess = count - max_size
+            all_data = collection.get(limit=excess, include=[])
+            if all_data["ids"]:
+                collection.delete(ids=all_data["ids"])
+                logger.info(f"已清理 {len(all_data['ids'])} 条旧的 qa_memory 记录")
+    except Exception as e:
+        logger.error(f"清理 qa_memory 失败: {e}")
 
 
 def remember_conversation(session_id: str, question: str, answer: str,
@@ -131,5 +157,8 @@ def remember_conversation(session_id: str, question: str, answer: str,
 
     # 4. 存入 Chroma qa_memory collection
     store_summaries_to_vectorstore(summaries, session_id, sources)
+
+    # 5. 定期清理 qa_memory（每次对话后检查）
+    cleanup_qa_memory()
 
     return summaries

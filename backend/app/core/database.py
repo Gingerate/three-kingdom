@@ -131,8 +131,10 @@ def init_db():
 @contextmanager
 def get_connection():
     """获取数据库连接的上下文管理器"""
-    conn = sqlite3.connect(str(get_db_path()))
+    conn = sqlite3.connect(str(get_db_path()), timeout=30)
     conn.row_factory = sqlite3.Row
+    # 启用 WAL 模式，提升并发读写性能
+    conn.execute("PRAGMA journal_mode=WAL")
     try:
         yield conn
         conn.commit()
@@ -166,16 +168,20 @@ def get_conversation_history(session_id: str, limit: int = 20) -> list[dict]:
             "WHERE session_id = ? ORDER BY created_at ASC LIMIT ?",
             (session_id, limit),
         ).fetchall()
-    return [
-        {
+    result = []
+    for r in rows:
+        try:
+            sources = json.loads(r["sources"])
+        except (json.JSONDecodeError, TypeError):
+            sources = []
+        result.append({
             "role": r["role"],
             "content": r["content"],
-            "sources": json.loads(r["sources"]),
+            "sources": sources,
             "route": r["route"],
             "created_at": r["created_at"],
-        }
-        for r in rows
-    ]
+        })
+    return result
 
 
 def get_recent_sessions(limit: int = 50) -> list[dict]:
@@ -218,17 +224,21 @@ def get_knowledge_summaries(session_id: str | None = None, limit: int = 100) -> 
                 "SELECT * FROM knowledge_summaries ORDER BY created_at DESC LIMIT ?",
                 (limit,),
             ).fetchall()
-    return [
-        {
+    result = []
+    for r in rows:
+        try:
+            sources = json.loads(r["sources"])
+        except (json.JSONDecodeError, TypeError):
+            sources = []
+        result.append({
             "id": r["id"],
             "session_id": r["session_id"],
             "question": r["question"],
             "summary": r["summary"],
-            "sources": json.loads(r["sources"]),
+            "sources": sources,
             "created_at": r["created_at"],
-        }
-        for r in rows
-    ]
+        })
+    return result
 
 
 def cleanup_old_knowledge_summaries(days: int = 30) -> int:
@@ -344,11 +354,15 @@ def get_wiki_pages(topic: str | None = None, limit: int = 50,
             ).fetchall()
     result = []
     for r in rows:
+        try:
+            source_sessions = json.loads(r["source_sessions"])
+        except (json.JSONDecodeError, TypeError):
+            source_sessions = []
         item = {
             "id": r["id"],
             "title": r["title"],
             "topic": r["topic"],
-            "source_sessions": json.loads(r["source_sessions"]),
+            "source_sessions": source_sessions,
             "created_at": r["created_at"],
             "updated_at": r["updated_at"],
         }
@@ -370,12 +384,16 @@ def get_wiki_page(page_id: int) -> dict | None:
         ).fetchone()
     if not r:
         return None
+    try:
+        source_sessions = json.loads(r["source_sessions"])
+    except (json.JSONDecodeError, TypeError):
+        source_sessions = []
     return {
         "id": r["id"],
         "title": r["title"],
         "content": r["content"],
         "topic": r["topic"],
-        "source_sessions": json.loads(r["source_sessions"]),
+        "source_sessions": source_sessions,
         "created_at": r["created_at"],
         "updated_at": r["updated_at"],
     }
@@ -403,18 +421,26 @@ def get_review_items_by_status(status: str) -> list[dict]:
             "SELECT * FROM review_items WHERE status = ? ORDER BY created_at DESC",
             (status,),
         ).fetchall()
-    return [
-        {
+    result = []
+    for r in rows:
+        try:
+            entities = json.loads(r["entities"])
+        except (json.JSONDecodeError, TypeError):
+            entities = []
+        try:
+            relations = json.loads(r["relations"])
+        except (json.JSONDecodeError, TypeError):
+            relations = []
+        result.append({
             "id": r["id"],
             "source_text": r["source_text"],
-            "entities": json.loads(r["entities"]),
-            "relations": json.loads(r["relations"]),
+            "entities": entities,
+            "relations": relations,
             "status": r["status"],
             "reason": r["reason"],
             "created_at": r["created_at"],
-        }
-        for r in rows
-    ]
+        })
+    return result
 
 
 def get_review_item(review_id: int) -> dict | None:
@@ -426,11 +452,19 @@ def get_review_item(review_id: int) -> dict | None:
         ).fetchone()
     if not r:
         return None
+    try:
+        entities = json.loads(r["entities"])
+    except (json.JSONDecodeError, TypeError):
+        entities = []
+    try:
+        relations = json.loads(r["relations"])
+    except (json.JSONDecodeError, TypeError):
+        relations = []
     return {
         "id": r["id"],
         "source_text": r["source_text"],
-        "entities": json.loads(r["entities"]),
-        "relations": json.loads(r["relations"]),
+        "entities": entities,
+        "relations": relations,
         "status": r["status"],
         "reason": r["reason"],
         "created_at": r["created_at"],

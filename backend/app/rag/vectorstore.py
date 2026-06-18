@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
 from app.core.config import settings
 from app.rag.embeddings import get_embeddings, LocalHuggingFaceEmbeddings
 from app.kg.text_splitter import Chunk
+
+logger = logging.getLogger(__name__)
 
 
 def get_vectorstore(embeddings: LocalHuggingFaceEmbeddings | None = None,
@@ -40,16 +43,21 @@ def chunks_to_documents(chunks: list[Chunk]) -> list[Document]:
 
 def clear_vectorstore(collection_name: str | None = None,
                       embeddings: LocalHuggingFaceEmbeddings | None = None) -> int:
-    """清空向量库，返回删除的条数"""
+    """清空向量库，返回删除的条数（分批删除，避免大集合 OOM）"""
     vectorstore = get_vectorstore(embeddings, collection_name)
     collection = vectorstore._collection
     count = collection.count()
 
     if count > 0:
-        # 获取所有 ID 并删除
-        all_ids = collection.get()["ids"]
-        if all_ids:
-            collection.delete(ids=all_ids)
+        # 分批获取和删除，避免一次性加载所有数据到内存
+        batch_size = 1000
+        deleted = 0
+        while True:
+            batch = collection.get(limit=batch_size)
+            if not batch["ids"]:
+                break
+            collection.delete(ids=batch["ids"])
+            deleted += len(batch["ids"])
 
     return count
 
@@ -70,7 +78,7 @@ def add_chunks_to_vectorstore(chunks: list[Chunk],
     # 可选：先清空
     if clear_first:
         deleted = clear_vectorstore()
-        print(f"已清空向量库，删除 {deleted} 条")
+        logger.info(f"已清空向量库，删除 {deleted} 条")
 
     docs = chunks_to_documents(chunks)
 
@@ -81,7 +89,7 @@ def add_chunks_to_vectorstore(chunks: list[Chunk],
         batch = docs[i: i + batch_size]
         vectorstore.add_documents(batch)
         total += len(batch)
-        print(f"已写入 {total}/{len(docs)} 条")
+        logger.info(f"已写入 {total}/{len(docs)} 条")
 
     return total
 
@@ -94,10 +102,23 @@ def search_vectorstore(query: str, k: int = 20,
 
 
 def search_memory(query: str, k: int = 5,
-                  embeddings: LocalHuggingFaceEmbeddings | None = None) -> list[Document]:
-    """从对话记忆 collection 中检索相关历史摘要"""
+                  embeddings: LocalHuggingFaceEmbeddings | None = None,
+                  session_id: str | None = None) -> list[Document]:
+    """从对话记忆 collection 中检索相关历史摘要
+
+    Args:
+        query: 查询文本
+        k: 返回数量
+        embeddings: 可选的 embedding 模型
+        session_id: 可选的会话 ID，用于过滤同一会话的记忆
+    """
     try:
         vectorstore = get_vectorstore(embeddings, collection_name="qa_memory")
+        # 如果指定了 session_id，只检索同一会话的记忆
+        if session_id:
+            return vectorstore.similarity_search(
+                query, k=k, filter={"session_id": session_id}
+            )
         return vectorstore.similarity_search(query, k=k)
     except Exception:
         # qa_memory collection 可能尚未创建（首次使用前），静默返回空

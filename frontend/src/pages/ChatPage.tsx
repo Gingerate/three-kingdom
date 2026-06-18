@@ -14,9 +14,17 @@ export default function ChatPage() {
   const { messages, loading, streamStatus, handleSend, clearMessages } = useChat();
   const [input, setInput] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // 智能滚动：只在用户已经在底部附近时自动滚动
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
+    if (isNearBottom) {
+      endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   const onSend = async (text?: string) => {
@@ -49,7 +57,7 @@ export default function ChatPage() {
       </div>
 
       {/* 消息区 */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '24px 32px' }}>
+      <div ref={scrollContainerRef} style={{ flex: 1, overflow: 'auto', padding: '24px 32px' }}>
         {isEmpty && (
           <div style={{
             display: 'flex',

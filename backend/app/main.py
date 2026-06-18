@@ -1,10 +1,17 @@
 """FastAPI 应用入口"""
 
-from fastapi import FastAPI
+import logging
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
+from app.core.logging import setup_logging
 from app.api.router import api_router
+
+# 初始化日志
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
@@ -14,14 +21,28 @@ def create_app() -> FastAPI:
         version="0.1.0",
     )
 
-    # CORS 配置
+    # CORS 配置（允许前端端口）
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_origins=[
+            "http://localhost:5174",
+            "http://127.0.0.1:5174",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # 全局异常处理器
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        logger.error(f"未捕获的异常: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "服务器内部错误，请稍后重试"},
+        )
 
     # 注册路由
     app.include_router(api_router, prefix="/api")
