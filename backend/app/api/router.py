@@ -289,7 +289,7 @@ async def upload_and_ingest(file: UploadFile = File(...)):
 
     # 触发入库
     from app.kg.pipeline import process_and_ingest
-    result = process_and_ingest()
+    result = await asyncio.to_thread(process_and_ingest)
 
     return {
         "status": "ok",
