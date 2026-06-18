@@ -121,6 +121,18 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_review_status ON review_items(status);
 
+            -- 对话反馈表
+            CREATE TABLE IF NOT EXISTS conversation_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                question TEXT NOT NULL,
+                answer TEXT NOT NULL,
+                rating TEXT NOT NULL,          -- 'up' / 'down'
+                comment TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_feedback_session ON conversation_feedback(session_id);
+
             -- 索引
             CREATE INDEX IF NOT EXISTS idx_persons_name ON persons(name);
             CREATE INDEX IF NOT EXISTS idx_events_name ON events(name);
@@ -194,6 +206,97 @@ def get_recent_sessions(limit: int = 50) -> list[dict]:
             (limit,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_conversation_stats() -> dict:
+    """获取对话统计信息"""
+    with get_connection() as conn:
+        # 总对话数
+        total_sessions = conn.execute(
+            "SELECT COUNT(DISTINCT session_id) FROM conversations"
+        ).fetchone()[0]
+
+        # 总消息数
+        total_messages = conn.execute(
+            "SELECT COUNT(*) FROM conversations"
+        ).fetchone()[0]
+
+        # 平均回答长度
+        avg_answer_len = conn.execute(
+            "SELECT AVG(LENGTH(content)) FROM conversations WHERE role = 'assistant'"
+        ).fetchone()[0] or 0
+
+        # 最近 7 天活跃
+        recent_active = conn.execute(
+            "SELECT COUNT(DISTINCT session_id) FROM conversations "
+            "WHERE created_at >= datetime('now', '-7 days')"
+        ).fetchone()[0]
+
+        return {
+            "total_sessions": total_sessions,
+            "total_messages": total_messages,
+            "avg_answer_length": round(avg_answer_len),
+            "recent_active_sessions": recent_active,
+        }
+
+
+def get_source_coverage() -> dict:
+    """获取信源覆盖度统计"""
+    with get_connection() as conn:
+        # 各类型实体数量
+        persons = conn.execute("SELECT COUNT(*) FROM persons").fetchone()[0]
+        events = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        forces = conn.execute("SELECT COUNT(*) FROM forces").fetchone()[0]
+        relations = conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0]
+
+        # 有描述的实体比例
+        persons_with_desc = conn.execute(
+            "SELECT COUNT(*) FROM persons WHERE description != ''"
+        ).fetchone()[0]
+        events_with_desc = conn.execute(
+            "SELECT COUNT(*) FROM events WHERE description != ''"
+        ).fetchone()[0]
+
+        # Wiki 页面数
+        wiki_count = conn.execute("SELECT COUNT(*) FROM wiki_pages").fetchone()[0]
+        knowledge_count = conn.execute("SELECT COUNT(*) FROM knowledge_summaries").fetchone()[0]
+
+        return {
+            "entities": {
+                "persons": persons,
+                "events": events,
+                "forces": forces,
+                "total": persons + events + forces,
+            },
+            "relations": relations,
+            "coverage": {
+                "persons_with_description": persons_with_desc,
+                "events_with_description": events_with_desc,
+            },
+            "wiki_pages": wiki_count,
+            "knowledge_summaries": knowledge_count,
+        }
+
+
+def delete_session(session_id: str) -> int:
+    """删除指定会话的所有对话记录，返回删除的记录数"""
+    with get_connection() as conn:
+        result = conn.execute(
+            "DELETE FROM conversations WHERE session_id = ?",
+            (session_id,),
+        )
+        return result.rowcount
+
+
+def save_feedback(session_id: str, question: str, answer: str,
+                  rating: str, comment: str = ""):
+    """保存对话反馈"""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO conversation_feedback (session_id, question, answer, rating, comment) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (session_id, question, answer, rating, comment),
+        )
 
 
 # ==================== 知识摘要 ====================

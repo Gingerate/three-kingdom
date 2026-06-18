@@ -117,11 +117,88 @@ async def list_sessions(limit: int = Query(50, ge=1, le=200)):
     return {"sessions": get_recent_sessions(limit)}
 
 
+@api_router.get("/sessions/stats")
+async def get_session_stats():
+    """获取对话统计信息"""
+    from app.core.database import get_conversation_stats
+    return get_conversation_stats()
+
+
+@api_router.get("/health")
+async def health_check():
+    """系统健康检查"""
+    import os
+    from pathlib import Path
+    from app.core.config import settings
+
+    result = {
+        "status": "ok",
+        "database": False,
+        "chromadb": False,
+        "raw_files_count": 0,
+        "embedding_model": settings.embedding_model_name,
+    }
+
+    # 检查数据库
+    try:
+        from app.core.database import get_conversation_stats
+        get_conversation_stats()
+        result["database"] = True
+    except Exception:
+        result["status"] = "degraded"
+
+    # 检查 ChromaDB
+    try:
+        from app.rag.vectorstore import get_vectorstore
+        vs = get_vectorstore()
+        result["chromadb"] = True
+    except Exception:
+        result["status"] = "degraded"
+
+    # 统计原始文件
+    raw_dir = Path(settings.project_root) / "data" / "raw"
+    if raw_dir.exists():
+        result["raw_files_count"] = len(list(raw_dir.rglob("*.*")))
+
+    return result
+
+
+@api_router.get("/coverage")
+async def get_source_coverage():
+    """获取信源覆盖度统计"""
+    from app.core.database import get_source_coverage
+    return get_source_coverage()
+
+
 @api_router.get("/sessions/{session_id}")
 async def get_session_history(session_id: str):
     """获取指定会话的对话历史"""
     from app.core.database import get_conversation_history
     return {"messages": get_conversation_history(session_id)}
+
+
+@api_router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """删除指定会话"""
+    from app.core.database import delete_session
+    deleted = delete_session(session_id)
+    return {"deleted": deleted}
+
+
+class FeedbackRequest(BaseModel):
+    session_id: str
+    question: str
+    answer: str
+    rating: str  # 'up' or 'down'
+    comment: str = ""
+
+
+@api_router.post("/feedback")
+async def submit_feedback(req: FeedbackRequest):
+    """提交对话反馈"""
+    from app.core.database import save_feedback
+    save_feedback(req.session_id, req.question, req.answer, req.rating, req.comment)
+    return {"status": "ok"}
 
 
 # ==================== 知识摘要 ====================

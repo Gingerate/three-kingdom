@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useRef, useCallback, type ReactNode } from 'react';
-import { chatStream, type StreamEvent } from '../services/api';
+import { chatStream, getSessions, getSessionHistory, type StreamEvent, type SessionInfo } from '../services/api';
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -8,6 +8,9 @@ export interface Message {
   route?: string;
   subQuestions?: string[];
   isStreaming?: boolean;
+  completedNodes?: string[];
+  currentNode?: string;
+  timestamp?: number;
 }
 
 interface ChatContextValue {
@@ -15,8 +18,11 @@ interface ChatContextValue {
   loading: boolean;
   streamStatus: string;
   sessionId?: string;
+  sessions: SessionInfo[];
   handleSend: (text?: string) => Promise<void>;
   clearMessages: () => void;
+  loadSessions: () => Promise<void>;
+  switchSession: (sessionId: string) => Promise<void>;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -26,6 +32,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [streamStatus, setStreamStatus] = useState('');
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const loadingRef = useRef(loading);
   const sessionIdRef = useRef(sessionId);
@@ -58,9 +65,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    setMessages((prev) => [...prev, { role: 'user', content: question }]);
+    setMessages((prev) => [...prev, { role: 'user', content: question, timestamp: Date.now() }]);
     setLoading(true);
-    setMessages((prev) => [...prev, { role: 'assistant', content: '', isStreaming: true }]);
+    setMessages((prev) => [...prev, { role: 'assistant', content: '', isStreaming: true, timestamp: Date.now() }]);
 
     await chatStream(
       question,
@@ -82,6 +89,24 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           increment_retry: '重新检索中...',
         };
         setStreamStatus(statusMap[node] || '');
+
+        // 追踪管线节点进度
+        const pipelineNodes = ['router', 'decompose', 'retrieve', 'grade', 'generate', 'reflect'];
+        if (pipelineNodes.includes(node)) {
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated.length - 1;
+            if (last >= 0 && updated[last].role === 'assistant') {
+              const msg = { ...updated[last] };
+              // 当前节点之前的所有节点标记为已完成
+              const nodeIdx = pipelineNodes.indexOf(node);
+              msg.completedNodes = pipelineNodes.slice(0, nodeIdx);
+              msg.currentNode = node;
+              updated[last] = msg;
+            }
+            return updated;
+          });
+        }
 
         setMessages((prev) => {
           const updated = [...prev];
@@ -110,7 +135,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           const updated = [...prev];
           const last = updated.length - 1;
           if (last >= 0 && updated[last].role === 'assistant') {
-            updated[last] = { ...updated[last], isStreaming: false };
+            updated[last] = {
+              ...updated[last],
+              isStreaming: false,
+              completedNodes: ['router', 'decompose', 'retrieve', 'grade', 'generate', 'reflect'],
+              currentNode: undefined,
+            };
           }
           return updated;
         });
@@ -154,8 +184,35 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setSessionId(undefined);
   }, []);
 
+  const loadSessions = useCallback(async () => {
+    try {
+      const data = await getSessions(50);
+      setSessions(data.sessions || []);
+    } catch {
+      // 静默失败
+    }
+  }, []);
+
+  const switchSession = useCallback(async (sid: string) => {
+    if (loadingRef.current) return;
+    try {
+      const data = await getSessionHistory(sid);
+      const historyMessages: Message[] = (data.messages || []).flatMap((m: any) => {
+        const result: Message[] = [];
+        if (m.question) result.push({ role: 'user', content: m.question });
+        if (m.answer) result.push({ role: 'assistant', content: m.answer, sources: m.sources || [] });
+        return result;
+      });
+      setMessages(historyMessages);
+      setSessionId(sid);
+      setStreamStatus('');
+    } catch {
+      // 静默失败
+    }
+  }, []);
+
   return (
-    <ChatContext.Provider value={{ messages, loading, streamStatus, sessionId, handleSend, clearMessages }}>
+    <ChatContext.Provider value={{ messages, loading, streamStatus, sessionId, sessions, handleSend, clearMessages, loadSessions, switchSession }}>
       {children}
     </ChatContext.Provider>
   );

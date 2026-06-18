@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Input, Select, Spin, Drawer, Descriptions, Tag, Empty, Button, message } from 'antd';
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Graph } from '@antv/g6';
-import { getGraph, searchGraph, getEntityDetail, type GraphData } from '../services/api';
+import { getGraph, searchGraph, getEntityDetail, getCoverage, type GraphData } from '../services/api';
 
 const { Search } = Input;
 
@@ -56,6 +56,13 @@ export default function GraphPage() {
   const [selectedEntity, setSelectedEntity] = useState<EntityDetail | null>(null);
   const [selectedRelations, setSelectedRelations] = useState<RelationDetail[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [coverage, setCoverage] = useState<{
+    entities: { persons: number; events: number; forces: number; total: number };
+    relations: number;
+    coverage: { persons_with_description: number; events_with_description: number };
+    wiki_pages: number;
+    knowledge_summaries: number;
+  } | null>(null);
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
@@ -174,6 +181,7 @@ export default function GraphPage() {
 
   useEffect(() => {
     loadGraph();
+    getCoverage().then(setCoverage).catch(() => {});
     return () => {
       if (graphRef.current) {
         graphRef.current.destroy();
@@ -226,16 +234,20 @@ export default function GraphPage() {
     }
   };
 
+  // 统计数据
+  const stats = graphData ? {
+    totalNodes: graphData.nodes.length,
+    totalEdges: graphData.edges.length,
+    personCount: graphData.nodes.filter(n => n.data.type === 'person').length,
+    eventCount: graphData.nodes.filter(n => n.data.type === 'event').length,
+    forceCount: graphData.nodes.filter(n => n.data.type === 'force').length,
+  } : null;
+
   return (
     <div className="page-shell">
       {/* 工具栏 */}
       <div className="page-header">
         <span className="page-header-title">知识图谱</span>
-        {graphData && (
-          <Tag style={{ fontSize: 11, color: 'var(--ink-60)' }}>
-            {graphData.nodes.length} 实体 · {graphData.edges.length} 关系
-          </Tag>
-        )}
         <div className="page-header-spacer" />
         <Select
           placeholder="筛选类型"
@@ -257,6 +269,47 @@ export default function GraphPage() {
         />
         <Button icon={<ReloadOutlined />} onClick={loadGraph} />
       </div>
+
+      {/* 统计卡片 */}
+      {stats && (
+        <div className="graph-stats-bar">
+          <div className="graph-stat-item">
+            <span className="graph-stat-value">{stats.totalNodes}</span>
+            <span className="graph-stat-label">实体总数</span>
+          </div>
+          <div className="graph-stat-divider" />
+          <div className="graph-stat-item">
+            <span className="graph-stat-value" style={{ color: ENTITY_COLORS.person }}>{stats.personCount}</span>
+            <span className="graph-stat-label">人物</span>
+          </div>
+          <div className="graph-stat-item">
+            <span className="graph-stat-value" style={{ color: ENTITY_COLORS.event }}>{stats.eventCount}</span>
+            <span className="graph-stat-label">事件</span>
+          </div>
+          <div className="graph-stat-item">
+            <span className="graph-stat-value" style={{ color: ENTITY_COLORS.force }}>{stats.forceCount}</span>
+            <span className="graph-stat-label">势力</span>
+          </div>
+          <div className="graph-stat-divider" />
+          <div className="graph-stat-item">
+            <span className="graph-stat-value">{stats.totalEdges}</span>
+            <span className="graph-stat-label">关系</span>
+          </div>
+          {coverage && (
+            <>
+              <div className="graph-stat-divider" />
+              <div className="graph-stat-item">
+                <span className="graph-stat-value">{coverage.wiki_pages}</span>
+                <span className="graph-stat-label">Wiki</span>
+              </div>
+              <div className="graph-stat-item">
+                <span className="graph-stat-value">{coverage.knowledge_summaries}</span>
+                <span className="graph-stat-label">知识摘要</span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* 图谱 */}
       <div ref={containerRef} style={{ flex: 1, position: 'relative', minHeight: 0 }}>
@@ -319,6 +372,43 @@ export default function GraphPage() {
           <Empty description="点击节点查看详情" />
         )}
       </Drawer>
+
+      <style>{`
+        .graph-stats-bar {
+          display: flex;
+          align-items: center;
+          gap: 20px;
+          padding: 10px 24px;
+          background: var(--bg-surface);
+          border-bottom: 1px solid var(--border-faint);
+          flex-shrink: 0;
+        }
+
+        .graph-stat-item {
+          display: flex;
+          align-items: baseline;
+          gap: 6px;
+        }
+
+        .graph-stat-value {
+          font-family: var(--font-display);
+          font-size: 18px;
+          font-weight: 700;
+          color: var(--ink-100);
+          font-variant-numeric: tabular-nums;
+        }
+
+        .graph-stat-label {
+          font-size: 12px;
+          color: var(--ink-40);
+        }
+
+        .graph-stat-divider {
+          width: 1px;
+          height: 24px;
+          background: var(--border);
+        }
+      `}</style>
     </div>
   );
 }

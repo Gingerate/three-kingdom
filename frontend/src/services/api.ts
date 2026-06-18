@@ -88,6 +88,49 @@ export async function chatStream(
   }
 }
 
+// ==================== 对话历史 ====================
+
+export interface SessionInfo {
+  session_id: string;
+  first_question: string;
+  message_count: number;
+  last_active: string;
+}
+
+export async function getSessions(limit = 50): Promise<{ sessions: SessionInfo[] }> {
+  return request(`/sessions?limit=${limit}`);
+}
+
+export async function getSessionStats(): Promise<{
+  total_sessions: number;
+  total_messages: number;
+  avg_answer_length: number;
+  recent_active_sessions: number;
+}> {
+  return request('/sessions/stats');
+}
+
+export async function getSessionHistory(sessionId: string): Promise<{ messages: any[] }> {
+  return request(`/sessions/${sessionId}`);
+}
+
+export async function deleteSession(sessionId: string): Promise<{ deleted: number }> {
+  return request(`/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+export async function submitFeedback(data: {
+  session_id: string;
+  question: string;
+  answer: string;
+  rating: 'up' | 'down';
+  comment?: string;
+}): Promise<{ status: string }> {
+  return request('/feedback', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
 // ==================== 知识图谱 ====================
 
 export async function getWikiPages(topic?: string): Promise<{ pages: any[] }> {
@@ -287,6 +330,26 @@ export async function ingestData(options?: { clear_first?: boolean; force_reinge
 
 export async function getStats(): Promise<any> {
   return request('/stats');
+}
+
+export async function getHealth(): Promise<{
+  status: string;
+  database: boolean;
+  chromadb: boolean;
+  raw_files_count: number;
+  embedding_model: string;
+}> {
+  return request('/health');
+}
+
+export async function getCoverage(): Promise<{
+  entities: { persons: number; events: number; forces: number; total: number };
+  relations: number;
+  coverage: { persons_with_description: number; events_with_description: number };
+  wiki_pages: number;
+  knowledge_summaries: number;
+}> {
+  return request('/coverage');
 }
 
 // ==================== 论文爬虫 ====================

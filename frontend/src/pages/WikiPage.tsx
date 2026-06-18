@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button, Tag, Spin, message, Select, Popconfirm, Modal, Input } from 'antd';
-import { BookOutlined, ThunderboltOutlined, DeleteOutlined, EditOutlined, ClearOutlined } from '@ant-design/icons';
+import { BookOutlined, ThunderboltOutlined, DeleteOutlined, EditOutlined, ClearOutlined, SearchOutlined } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getWikiPages, getKnowledgeSummaries, distillWiki, deleteWikiPage, updateWikiPage, cleanupKnowledge } from '../services/api';
@@ -38,6 +38,7 @@ export default function WikiPage() {
   const [editContent, setEditContent] = useState('');
   const [editTopic, setEditTopic] = useState('');
   const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [searchText, setSearchText] = useState('');
 
   useEffect(() => {
     loadData();
@@ -74,6 +75,14 @@ export default function WikiPage() {
 
   // 提取所有主题标签
   const topics = Array.from(new Set(pages.map(p => p.topic).filter(Boolean)));
+
+  // 过滤页面
+  const filteredPages = searchText
+    ? pages.filter(p =>
+        p.title.toLowerCase().includes(searchText.toLowerCase()) ||
+        p.content.toLowerCase().includes(searchText.toLowerCase())
+      )
+    : pages;
 
   const handleDeletePage = async (pageId: number) => {
     try {
@@ -146,7 +155,16 @@ export default function WikiPage() {
       <div className="page-header">
         <span className="page-header-title">知识沉淀</span>
         <Tag style={{ fontSize: 11 }}>{summaries.length} 条摘要</Tag>
-        <Tag style={{ fontSize: 11 }}>{pages.length} 篇 Wiki</Tag>
+        <Tag style={{ fontSize: 11 }}>{filteredPages.length} 篇 Wiki</Tag>
+        <Input
+          placeholder="搜索 Wiki"
+          prefix={<SearchOutlined style={{ color: 'var(--ink-40)' }} />}
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          allowClear
+          style={{ width: 160 }}
+          size="small"
+        />
         <Select
           placeholder="按主题筛选"
           allowClear
@@ -190,7 +208,7 @@ export default function WikiPage() {
         ) : (
           <>
             {/* Wiki 页面列表 */}
-            {pages.length > 0 && (
+            {filteredPages.length > 0 && (
               <div style={{ marginBottom: 32 }}>
                 <h3 style={{
                   fontFamily: 'var(--font-display)',
@@ -206,7 +224,7 @@ export default function WikiPage() {
                   Wiki 页面
                 </h3>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
-                  {pages.map((page) => (
+                  {filteredPages.map((page) => (
                     <div
                       key={page.id}
                       className="wiki-card"
@@ -354,14 +372,32 @@ export default function WikiPage() {
 
 /* ── Wiki 阅读器 ── */
 
+interface TocItem {
+  idx: number;
+  level: number;
+  text: string;
+}
+
 function WikiReader({ page, onClose }: {
   page: WikiPage;
   onClose: () => void;
 }) {
   const [visibleSections, setVisibleSections] = useState<Set<number>>(new Set());
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [scrollProgress, setScrollProgress] = useState(0);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const sectionRefs = useRef<(HTMLElement | null)[]>([]);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // 将内容按 h2 分段
+  const sections = page.content.split(/(?=^## )/m).filter(Boolean);
+
+  // 提取目录结构
+  const tocItems: TocItem[] = sections.map((section, idx) => {
+    const firstLine = section.split('\n')[0];
+    const match = firstLine.match(/^(#{2,3})\s+(.+)/);
+    return match ? { idx, level: match[1].length, text: match[2].trim() } : { idx, level: 2, text: `段落 ${idx + 1}` };
+  });
 
   useEffect(() => {
     // 为每个 h2 段落设置 IntersectionObserver
@@ -371,6 +407,7 @@ function WikiReader({ page, onClose }: {
           const idx = parseInt(entry.target.getAttribute('data-idx') || '0');
           if (entry.isIntersecting) {
             setVisibleSections((prev) => new Set([...prev, idx]));
+            setActiveIdx(idx);
           }
         });
       },
@@ -384,11 +421,41 @@ function WikiReader({ page, onClose }: {
     return () => observerRef.current?.disconnect();
   }, []);
 
-  // 将内容按 h2 分段
-  const sections = page.content.split(/(?=^## )/m).filter(Boolean);
+  // 监听滚动进度
+  useEffect(() => {
+    const container = contentRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      const progress = scrollHeight > clientHeight
+        ? (scrollTop / (scrollHeight - clientHeight)) * 100
+        : 0;
+      setScrollProgress(Math.min(100, Math.max(0, progress)));
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // 点击目录跳转
+  const scrollToSection = (idx: number) => {
+    const el = sectionRefs.current[idx];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
 
   return (
-    <div className="page-shell" style={{ background: 'var(--bg-base)' }}>
+    <div className="page-shell wiki-reader" style={{ background: 'var(--bg-base)' }}>
+      {/* 阅读进度条 */}
+      <div className="wiki-progress-bar">
+        <div
+          className="wiki-progress-fill"
+          style={{ width: `${scrollProgress}%` }}
+        />
+      </div>
+
       {/* 顶栏 */}
       <div className="page-header">
         <Button type="text" size="small" onClick={onClose} style={{ color: 'var(--ink-60)' }}>
@@ -399,10 +466,27 @@ function WikiReader({ page, onClose }: {
         </div>
         {page.topic && <Tag style={{ fontSize: 11 }}>{page.topic}</Tag>}
         <div className="page-header-spacer" />
+        <Button size="small" onClick={() => window.print()}>
+          打印 / PDF
+        </Button>
         <span style={{ fontSize: 12, color: 'var(--ink-40)' }}>
           {new Date(page.created_at).toLocaleDateString('zh-CN')}
         </span>
       </div>
+
+      {/* 浮动目录 */}
+      <nav className="wiki-toc" aria-label="文章目录">
+        <div className="wiki-toc-title">目录</div>
+        {tocItems.map((item) => (
+          <button
+            key={item.idx}
+            className={`wiki-toc-item ${activeIdx === item.idx ? 'active' : ''} ${item.level === 3 ? 'sub' : ''}`}
+            onClick={() => scrollToSection(item.idx)}
+          >
+            {item.text}
+          </button>
+        ))}
+      </nav>
 
       {/* 阅读区 */}
       <div ref={contentRef} style={{ flex: 1, overflow: 'auto', padding: '0' }}>
@@ -587,6 +671,147 @@ function WikiReader({ page, onClose }: {
         .wiki-p em {
           font-style: italic;
           color: var(--ink-60);
+        }
+
+        /* 浮动目录 */
+        .wiki-reader {
+          display: flex;
+          flex-direction: column;
+          position: relative;
+        }
+
+        .wiki-toc {
+          position: fixed;
+          left: 20px;
+          top: 120px;
+          width: 160px;
+          max-height: calc(100vh - 180px);
+          overflow-y: auto;
+          z-index: 10;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .wiki-toc-title {
+          font-family: var(--font-display);
+          font-size: 12px;
+          font-weight: 700;
+          color: var(--ink-40);
+          letter-spacing: 2px;
+          margin-bottom: 8px;
+          padding-left: 12px;
+        }
+
+        .wiki-toc-item {
+          display: block;
+          width: 100%;
+          text-align: left;
+          background: none;
+          border: none;
+          cursor: pointer;
+          font-family: var(--font-display);
+          font-size: 12px;
+          color: var(--ink-40);
+          padding: 5px 12px;
+          border-left: 2px solid transparent;
+          transition: all 0.2s ease;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .wiki-toc-item.sub {
+          padding-left: 24px;
+          font-size: 11px;
+        }
+
+        .wiki-toc-item:hover {
+          color: var(--ink-80);
+          background: var(--bg-hover);
+        }
+
+        .wiki-toc-item.active {
+          color: var(--vermilion);
+          border-left-color: var(--vermilion);
+          font-weight: 600;
+        }
+
+        /* 隐藏滚动条但保留功能 */
+        .wiki-toc::-webkit-scrollbar {
+          width: 0;
+        }
+
+        /* 小屏幕隐藏目录 */
+        @media (max-width: 1200px) {
+          .wiki-toc {
+            display: none;
+          }
+        }
+
+        /* 阅读进度条 */
+        .wiki-progress-bar {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 3px;
+          background: var(--border-faint);
+          z-index: 1000;
+        }
+
+        .wiki-progress-fill {
+          height: 100%;
+          background: var(--vermilion);
+          transition: width 0.1s linear;
+          border-radius: 0 2px 2px 0;
+        }
+
+        /* 打印样式 */
+        @media print {
+          .page-header,
+          .wiki-toc,
+          .wiki-progress-bar,
+          .vignette,
+          .film-grain,
+          .particles,
+          .topbar,
+          .ink-landscape {
+            display: none !important;
+          }
+
+          .page-shell {
+            background: white !important;
+          }
+
+          .wiki-content {
+            max-width: 100% !important;
+            padding: 0 !important;
+          }
+
+          .wiki-section {
+            opacity: 1 !important;
+            transform: none !important;
+            filter: none !important;
+            break-inside: avoid;
+          }
+
+          .wiki-h1 {
+            border-left: 3px solid #1a1a1a !important;
+          }
+
+          .wiki-hr::after {
+            background: white !important;
+          }
+
+          body {
+            overflow: visible !important;
+          }
+
+          #root {
+            height: auto !important;
+            overflow: visible !important;
+          }
         }
       `}</style>
     </div>

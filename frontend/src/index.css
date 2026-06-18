@@ -945,6 +945,174 @@ body {
 }
 
 /* ============================================
+   暗色模式
+   ============================================ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-base: #1a1917;
+    --bg-surface: #242320;
+    --bg-sunken: #151413;
+    --bg-hover: #2e2d2a;
+
+    --ink-100: #e8e4dc;
+    --ink-80: #c5c0b6;
+    --ink-60: #9e9a90;
+    --ink-40: #706d65;
+    --ink-20: #3d3b37;
+
+    --vermilion: #d4604f;
+    --vermilion-light: #e07a6b;
+    --vermilion-faint: rgba(212, 96, 79, 0.12);
+
+    --slate-green: #7a9e8f;
+    --slate-green-light: #96b8a8;
+
+    --border: #363430;
+    --border-faint: #2e2d2a;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+    --shadow-md: 0 2px 8px rgba(0,0,0,0.3);
+  }
+
+  body {
+    background: var(--bg-base);
+    color: var(--ink-100);
+  }
+
+  .vignette {
+    background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.3) 100%);
+  }
+
+  .film-grain {
+    opacity: 0.015;
+  }
+
+  .msg-bot .msg-avatar {
+    background: var(--vermilion);
+    color: #1a1917;
+  }
+
+  .msg-user .msg-avatar {
+    background: var(--slate-green);
+    color: #1a1917;
+  }
+
+  .msg-bot .msg-body {
+    background: var(--bg-surface);
+    border-color: var(--border);
+  }
+
+  .msg-user .msg-body {
+    background: var(--vermilion);
+    color: #1a1917;
+  }
+
+  .welcome-seal {
+    background: var(--vermilion);
+    color: #1a1917;
+  }
+
+  .topbar-seal {
+    background: var(--vermilion);
+    color: #1a1917;
+  }
+
+  .wiki-code {
+    background: var(--bg-sunken);
+    border-color: var(--border);
+    color: var(--vermilion-light);
+  }
+
+  .wiki-pre {
+    background: var(--bg-sunken);
+    border-color: var(--border);
+  }
+
+  .preview-content {
+    background: var(--bg-sunken);
+    border-color: var(--border);
+  }
+
+  /* Ant Design 暗色覆盖 */
+  .ant-btn-primary {
+    background: var(--vermilion) !important;
+    border-color: var(--vermilion) !important;
+    color: #1a1917 !important;
+  }
+
+  .ant-input {
+    background: var(--bg-sunken) !important;
+    border-color: var(--border) !important;
+    color: var(--ink-100) !important;
+  }
+
+  .ant-input::placeholder {
+    color: var(--ink-40) !important;
+  }
+
+  .ant-select-selector {
+    background: var(--bg-sunken) !important;
+    border-color: var(--border) !important;
+    color: var(--ink-100) !important;
+  }
+
+  .ant-modal-content {
+    background: var(--bg-surface) !important;
+  }
+
+  .ant-modal-header {
+    background: var(--bg-surface) !important;
+    border-color: var(--border) !important;
+  }
+
+  .ant-modal-title {
+    color: var(--ink-100) !important;
+  }
+
+  .ant-modal-footer {
+    border-color: var(--border) !important;
+  }
+
+  .ant-popover-inner {
+    background: var(--bg-surface) !important;
+  }
+
+  .ant-popconfirm-message-title {
+    color: var(--ink-100) !important;
+  }
+
+  .ant-spin-dot-item {
+    background-color: var(--vermilion) !important;
+  }
+
+  .ant-tag {
+    border-color: var(--border) !important;
+  }
+
+  .ant-divider {
+    border-color: var(--border) !important;
+  }
+
+  .ant-select-dropdown {
+    background: var(--bg-surface) !important;
+    border: 1px solid var(--border) !important;
+  }
+
+  .ant-select-item {
+    color: var(--ink-80) !important;
+  }
+
+  .ant-select-item-option-active {
+    background: var(--bg-hover) !important;
+  }
+
+  .ant-select-item-option-selected {
+    background: var(--vermilion-faint) !important;
+    color: var(--vermilion) !important;
+  }
+}
+
+/* ============================================
    移动端适配
    ============================================ */
 @media (max-width: 768px) {
