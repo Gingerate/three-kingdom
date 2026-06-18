@@ -441,6 +441,66 @@ def _convert_xml(src: Path) -> str:
     return "\n\n".join(md_parts) if md_parts else soup.get_text()
 
 
+def _is_book_noise(text: str) -> bool:
+    """判断 EPUB 单元是否为非正文噪声（目录、版权页、制作说明等）
+
+    保守策略：只过滤明显的非内容项，保留序言/前言/导读。
+    """
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    if not lines:
+        return True
+
+    joined = '\n'.join(lines)
+    total_chars = len(joined)
+
+    # ── 关键词噪声：前 200 字内出现以下关键词组合 ──
+    head = joined[:200].lower()
+
+    # 制作说明 / 版本历史 / 格式说明
+    _format_keywords = ['制作说明', '版本历史', '制作信息', '排版说明',
+                        '阅读效果', '多看设置', 'sigil', 'calibre',
+                        'kindle', 'epub制作', '电子书制作']
+    if any(kw in head for kw in _format_keywords):
+        return True
+
+    # 出版信息 / 版权页
+    _copyright_keywords = ['isbn', 'isbn：', 'isbn:', 'cip数据',
+                           '图书在版编目', '版权信息', '版权所有',
+                           '出版社：', '出版社:', '出版日期',
+                           '印刷:', '印刷：', '开本:', '开本：',
+                           '字数:', '字数：', '定价:', '定价：']
+    _copyright_hits = sum(1 for kw in _copyright_keywords if kw in joined.lower())
+    if _copyright_hits >= 2:
+        return True
+
+    # ── 目录检测：大量短行 + 章节标题模式 ──
+    if len(lines) >= 8:
+        short_lines = [l for l in lines if len(l) < 40]
+        short_ratio = len(short_lines) / len(lines)
+        # 超过 70% 是短行，且包含"目录"或章节模式
+        if short_ratio > 0.7:
+            if any(kw in head for kw in ['目录', '总目录', '目  录', '目 录']):
+                return True
+            # 纯目录模式：每行都是"第X章" / "XX第一" / 数字编号
+            toc_pattern = re.compile(
+                r'^(第.{1,6}[章卷篇回节部]|'
+                r'[一-鿿]{2,6}第[一二三四五六七八九十百千]+|'
+                r'\d{1,3}[\.\、]|'
+                r'[一二三四五六七八九十百千]+[\.\、])')
+            toc_lines = [l for l in lines if toc_pattern.match(l) or len(l) < 25]
+            if len(toc_lines) / len(lines) > 0.6:
+                return True
+
+    # ── 极短内容（< 80 字）且含噪声关键词 ──
+    if total_chars < 80:
+        _short_noise = ['目录', '版权', '封面', '扉页', '书名页',
+                        '出版', '印刷', '发行', '经销']
+        if any(kw in joined for kw in _short_noise):
+            return True
+
+    return False
+
+
 def _convert_epub(src: Path) -> str:
     """EPUB → Markdown"""
     try:
@@ -458,7 +518,7 @@ def _convert_epub(src: Path) -> str:
             html_content = item.get_content().decode("utf-8", errors="ignore")
             soup = BeautifulSoup(html_content, "html.parser")
             text = soup.get_text(separator="\n").strip()
-            if text:
+            if text and not _is_book_noise(text):
                 md_parts.append(text)
 
     return "\n\n---\n\n".join(md_parts)
