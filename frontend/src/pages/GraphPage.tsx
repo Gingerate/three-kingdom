@@ -1,0 +1,284 @@
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { Input, Select, Spin, Drawer, Descriptions, Tag, Empty, Button, message } from 'antd';
+import { SearchOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Graph } from '@antv/g6';
+import { getGraph, searchGraph, getEntityDetail, type GraphData } from '../services/api';
+
+const { Search } = Input;
+
+const ENTITY_COLORS: Record<string, string> = {
+  person: '#b94432',
+  event: '#5c7a6e',
+  force: '#8b7355',
+};
+
+const ENTITY_LABELS: Record<string, string> = {
+  person: '人物',
+  event: '事件',
+  force: '势力',
+};
+
+export default function GraphPage() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const graphRef = useRef<Graph | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [graphData, setGraphData] = useState<GraphData | null>(null);
+  const [filterType, setFilterType] = useState<string | undefined>(undefined);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedEntity, setSelectedEntity] = useState<any>(null);
+  const [selectedRelations, setSelectedRelations] = useState<any[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const loadGraph = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getGraph();
+      setGraphData(data);
+      renderGraph(data);
+    } catch (error) {
+      message.error('加载图谱失败，请确保后端已启动');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const renderGraph = (data: GraphData) => {
+    if (!containerRef.current) return;
+    if (graphRef.current) {
+      graphRef.current.destroy();
+      graphRef.current = null;
+    }
+    if (data.nodes.length === 0) return;
+
+    const graph = new Graph({
+      container: containerRef.current,
+      autoFit: 'view',
+      data: {
+        nodes: data.nodes.map((n) => ({ id: n.id, data: { ...n.data } })),
+        edges: data.edges.map((e, i) => ({
+          id: `edge_${i}`,
+          source: e.source,
+          target: e.target,
+          data: { ...e.data },
+        })),
+      },
+      node: {
+        style: {
+          size: (d: any) => {
+            const sizes: Record<string, number> = { person: 38, event: 32, force: 42 };
+            return sizes[d.data?.type as string] || 38;
+          },
+          fill: (d: any) => ENTITY_COLORS[d.data?.type] || '#999',
+          stroke: '#f7f3ec',
+          lineWidth: 2,
+          labelText: (d: any) => d.data?.label || d.id,
+          labelFontSize: 12,
+          labelFill: '#1a1a1a',
+          labelFontFamily: '"LXGW WenKai", serif',
+          labelPlacement: 'bottom',
+          labelOffsetY: 5,
+          cursor: 'pointer',
+        },
+      },
+      edge: {
+        style: {
+          endArrow: true,
+          stroke: '#d5d0c8',
+          lineWidth: 1.5,
+          labelText: (d: any) => d.data?.label || '',
+          labelFontSize: 10,
+          labelFill: '#777',
+          labelBackground: true,
+          labelBackgroundFill: '#f7f3ec',
+          labelBackgroundOpacity: 0.9,
+          labelPadding: [2, 4],
+        },
+      },
+      layout: {
+        type: 'd3-force',
+        preventOverlap: true,
+        nodeSize: 60,
+        linkDistance: 150,
+        nodeStrength: -300,
+      },
+      behaviors: ['drag-element', 'zoom-canvas', 'drag-canvas'],
+    });
+
+    graph.on('node:click', async (event: any) => {
+      const nodeId = event.target?.id;
+      if (!nodeId) return;
+      const parts = nodeId.split('_');
+      const entityType = parts[0];
+      const entityId = parseInt(parts[1]);
+      if (!entityType || isNaN(entityId)) return;
+
+      setDrawerOpen(true);
+      setDetailLoading(true);
+      setSelectedEntity(null);
+      setSelectedRelations([]);
+
+      try {
+        const detail = await getEntityDetail(entityType, entityId);
+        setSelectedEntity({ ...detail.entity, entity_type: entityType });
+        setSelectedRelations(detail.relations || []);
+      } catch {
+        message.error('获取详情失败');
+      } finally {
+        setDetailLoading(false);
+      }
+    });
+
+    graph.render();
+    graphRef.current = graph;
+  };
+
+  useEffect(() => {
+    loadGraph();
+    return () => {
+      if (graphRef.current) {
+        graphRef.current.destroy();
+        graphRef.current = null;
+      }
+    };
+  }, [loadGraph]);
+
+  const handleSearch = async (value: string) => {
+    if (!value.trim()) {
+      if (graphData) renderGraph(graphData);
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await searchGraph(value, filterType);
+      if (result.count === 0) {
+        message.info('未找到匹配的实体');
+        setLoading(false);
+        return;
+      }
+      if (graphData) {
+        const matchIds = new Set(result.results.map((r: any) => `${r.entity_type}_${r.id}`));
+        renderGraph({
+          nodes: graphData.nodes.map((n) => ({
+            ...n,
+            data: { ...n.data, _highlighted: matchIds.has(n.id) },
+          })),
+          edges: graphData.edges,
+        });
+      }
+    } catch {
+      message.error('搜索失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFilterChange = (value: string | undefined) => {
+    setFilterType(value);
+    if (graphData) {
+      const nodes = value
+        ? graphData.nodes.filter((n) => n.data.type === value)
+        : graphData.nodes;
+      const ids = new Set(nodes.map((n) => n.id));
+      renderGraph({
+        nodes,
+        edges: graphData.edges.filter((e) => ids.has(e.source) && ids.has(e.target)),
+      });
+    }
+  };
+
+  return (
+    <div className="page-shell">
+      {/* 工具栏 */}
+      <div className="page-header">
+        <span className="page-header-title">知识图谱</span>
+        {graphData && (
+          <Tag style={{ fontSize: 11, color: 'var(--ink-60)' }}>
+            {graphData.nodes.length} 实体 · {graphData.edges.length} 关系
+          </Tag>
+        )}
+        <div className="page-header-spacer" />
+        <Select
+          placeholder="筛选类型"
+          allowClear
+          style={{ width: 110 }}
+          onChange={handleFilterChange}
+          options={[
+            { value: 'person', label: '人物' },
+            { value: 'event', label: '事件' },
+            { value: 'force', label: '势力' },
+          ]}
+        />
+        <Search
+          placeholder="搜索实体"
+          allowClear
+          style={{ width: 180 }}
+          onSearch={handleSearch}
+          enterButton={<SearchOutlined />}
+        />
+        <Button icon={<ReloadOutlined />} onClick={loadGraph} />
+      </div>
+
+      {/* 图谱 */}
+      <div ref={containerRef} style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+        {loading && (
+          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}>
+            <Spin size="large" />
+          </div>
+        )}
+        {!loading && graphData && graphData.nodes.length === 0 && (
+          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}>
+            <Empty description="暂无图谱数据，请先入库并抽取实体" />
+          </div>
+        )}
+      </div>
+
+      {/* 详情抽屉 */}
+      <Drawer
+        title={selectedEntity?.name || '实体详情'}
+        placement="right"
+        width={380}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        className="graph-drawer"
+      >
+        {detailLoading ? (
+          <Spin />
+        ) : selectedEntity ? (
+          <>
+            <Descriptions column={1} bordered size="small">
+              <Descriptions.Item label="类型">
+                <Tag color={ENTITY_COLORS[selectedEntity.entity_type]}>
+                  {ENTITY_LABELS[selectedEntity.entity_type] || selectedEntity.entity_type}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="名称">{selectedEntity.name}</Descriptions.Item>
+              {selectedEntity.description && <Descriptions.Item label="描述">{selectedEntity.description}</Descriptions.Item>}
+              {selectedEntity.courtesy_name && <Descriptions.Item label="字">{selectedEntity.courtesy_name}</Descriptions.Item>}
+              {selectedEntity.origin && <Descriptions.Item label="籍贯">{selectedEntity.origin}</Descriptions.Item>}
+              {selectedEntity.birth_year && <Descriptions.Item label="生年">{selectedEntity.birth_year}</Descriptions.Item>}
+              {selectedEntity.death_year && <Descriptions.Item label="卒年">{selectedEntity.death_year}</Descriptions.Item>}
+              {selectedEntity.year && <Descriptions.Item label="年份">{selectedEntity.year}</Descriptions.Item>}
+              {selectedEntity.location && <Descriptions.Item label="地点">{selectedEntity.location}</Descriptions.Item>}
+              {selectedEntity.leader && <Descriptions.Item label="领袖">{selectedEntity.leader}</Descriptions.Item>}
+              {selectedEntity.period && <Descriptions.Item label="时期">{selectedEntity.period}</Descriptions.Item>}
+            </Descriptions>
+            {selectedRelations.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <h4 style={{ fontSize: 14, marginBottom: 8, color: 'var(--ink-80)' }}>
+                  相关关系（{selectedRelations.length}）
+                </h4>
+                {selectedRelations.map((rel, i) => (
+                  <Tag key={i} style={{ margin: '3px', fontSize: 12 }}>
+                    {rel.source_type}:{rel.source_id} → {rel.relation_type} → {rel.target_type}:{rel.target_id}
+                  </Tag>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <Empty description="点击节点查看详情" />
+        )}
+      </Drawer>
+    </div>
+  );
+}

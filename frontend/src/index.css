@@ -1,0 +1,885 @@
+/* ============================================
+   三国知识库 — 水墨史诗主题
+   ============================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=LXGW+WenKai:wght@300;400;700&display=swap');
+
+:root {
+  --bg-base: #f7f3ec;
+  --bg-surface: #ffffff;
+  --bg-sunken: #efeade;
+  --bg-hover: #f0ebe2;
+
+  --ink-100: #1a1a1a;
+  --ink-80: #4a4a4a;
+  --ink-60: #777;
+  --ink-40: #aaa;
+  --ink-20: #d5d0c8;
+
+  --vermilion: #b94432;
+  --vermilion-light: #d4604f;
+  --vermilion-faint: rgba(185, 68, 50, 0.08);
+
+  --slate-green: #5c7a6e;
+  --slate-green-light: #7a9e8f;
+
+  --border: #e2ddd4;
+  --border-faint: #ebe6dd;
+
+  --r-xs: 3px;
+  --r-sm: 5px;
+  --r-md: 8px;
+
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 14px;
+  --sp-lg: 20px;
+  --sp-xl: 28px;
+  --sp-2xl: 40px;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.06);
+
+  --font-display: "LXGW WenKai", "KaiTi", "楷体", serif;
+  --font-body: "LXGW WenKai", system-ui, -apple-system, sans-serif;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --t-fast: 120ms var(--ease-out);
+  --t-normal: 200ms var(--ease-out);
+  --t-slow: 500ms var(--ease-out);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg-base);
+  color: var(--ink-100);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.7;
+  font-size: 14px;
+  overflow: hidden;
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ============================================
+   胶片颗粒
+   ============================================ */
+.film-grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+  animation: grain 0.5s steps(4) infinite;
+}
+
+@keyframes grain {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(-2px, 3px); }
+  50% { transform: translate(3px, -1px); }
+  75% { transform: translate(-1px, -3px); }
+}
+
+/* ============================================
+   暗角
+   ============================================ */
+.vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(20,18,15,0.12) 100%);
+}
+
+/* ============================================
+   粒子容器
+   ============================================ */
+.particles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--ink-20);
+  opacity: 0;
+  animation: drift linear infinite;
+}
+
+@keyframes drift {
+  0% {
+    opacity: 0;
+    transform: translateY(0) translateX(0) scale(0.5);
+  }
+  15% {
+    opacity: 0.4;
+  }
+  85% {
+    opacity: 0.2;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-100vh) translateX(40px) scale(1);
+  }
+}
+
+/* ============================================
+   顶栏
+   ============================================ */
+.topbar {
+  height: 52px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-lg);
+  gap: var(--sp-lg);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 100;
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  flex-shrink: 0;
+  margin-right: var(--sp-md);
+}
+
+.topbar-seal {
+  width: 30px;
+  height: 30px;
+  background: var(--vermilion);
+  color: #faf6f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  border-radius: var(--r-xs);
+  letter-spacing: -1px;
+  animation: seal-breathe 4s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(185, 68, 50, 0);
+}
+
+@keyframes seal-breathe {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(185, 68, 50, 0);
+  }
+  50% {
+    box-shadow: 0 0 12px 2px rgba(185, 68, 50, 0.15);
+  }
+}
+
+.topbar-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-100);
+  letter-spacing: 1px;
+}
+
+.topbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.topbar-nav {
+  display: flex;
+  gap: var(--sp-xs);
+}
+
+.topbar-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--ink-60);
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: var(--font-body);
+  transition: color var(--t-fast), background var(--t-fast);
+  position: relative;
+}
+
+.topbar-link::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 12px;
+  right: 12px;
+  height: 2px;
+  background: var(--vermilion);
+  border-radius: 1px;
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.3s var(--ease-out);
+}
+
+.topbar-link:hover {
+  color: var(--ink-100);
+  background: var(--bg-hover);
+}
+
+.topbar-link:hover::after {
+  transform: scaleX(0.6);
+}
+
+.topbar-link.active {
+  color: var(--vermilion);
+  background: var(--vermilion-faint);
+}
+
+.topbar-link.active::after {
+  transform: scaleX(1);
+}
+
+.topbar-link .anticon {
+  font-size: 15px;
+}
+
+.topbar-spacer {
+  flex: 1;
+}
+
+/* ============================================
+   主内容
+   ============================================ */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 水墨山影背景 */
+.ink-landscape {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 180px;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.ink-landscape svg {
+  width: 100%;
+  height: 100%;
+}
+
+.ink-layer {
+  animation: parallax-drift 30s ease-in-out infinite alternate;
+}
+
+.ink-layer:nth-child(2) {
+  animation-duration: 45s;
+  animation-direction: alternate-reverse;
+}
+
+.ink-layer:nth-child(3) {
+  animation-duration: 60s;
+}
+
+@keyframes parallax-drift {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-30px); }
+}
+
+/* 页面容器 */
+.page-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+  z-index: 1;
+}
+
+/* ============================================
+   共享页面布局
+   ============================================ */
+.page-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.page-header {
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.page-header-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-100);
+}
+
+.page-header-spacer {
+  flex: 1;
+}
+
+.page-body {
+  flex: 1;
+  overflow: auto;
+  padding: 24px 32px;
+}
+
+/* ============================================
+   Wiki 卡片
+   ============================================ */
+.wiki-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 18px;
+  cursor: pointer;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+
+.wiki-card:hover {
+  border-color: var(--vermilion);
+  box-shadow: 0 2px 12px rgba(185, 68, 50, 0.08);
+}
+
+/* ============================================
+   知识图谱抽屉主题
+   ============================================ */
+.graph-drawer .ant-drawer-content {
+  background: var(--bg-base);
+}
+
+.graph-drawer .ant-drawer-header {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.graph-drawer .ant-drawer-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--ink-100);
+}
+
+/* ============================================
+   消息气泡
+   ============================================ */
+.msg {
+  display: flex;
+  gap: var(--sp-md);
+  margin-bottom: var(--sp-lg);
+}
+
+.msg-user {
+  flex-direction: row-reverse;
+}
+
+/* Bot 消息：毛笔入场 */
+.msg-bot {
+  animation: brush-in 0.6s var(--ease-out) both;
+}
+
+@keyframes brush-in {
+  0% {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+  100% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* User 消息：滑入 */
+.msg-user {
+  animation: slide-up 0.35s var(--ease-out) both;
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+.msg-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.msg-bot .msg-avatar {
+  background: var(--vermilion);
+  color: #faf6f0;
+}
+
+.msg-user .msg-avatar {
+  background: var(--slate-green);
+  color: #faf6f0;
+}
+
+.msg-body {
+  max-width: 72%;
+  padding: var(--sp-md) var(--sp-lg);
+  line-height: 1.8;
+  font-size: 14px;
+}
+
+.msg-bot .msg-body {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-faint);
+  border-radius: 2px var(--r-md) var(--r-md) var(--r-md);
+}
+
+.msg-user .msg-body {
+  background: var(--vermilion);
+  color: #faf6f0;
+  border-radius: var(--r-md) 2px var(--r-md) var(--r-md);
+}
+
+/* ============================================
+   欢迎区
+   ============================================ */
+.welcome-seal {
+  width: 72px;
+  height: 72px;
+  background: var(--vermilion);
+  color: #faf6f0;
+  border-radius: var(--r-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -2px;
+  margin-bottom: 24px;
+  animation: seal-entrance 0.8s var(--ease-out) both;
+  box-shadow: 0 4px 24px rgba(185, 68, 50, 0.2);
+}
+
+@keyframes seal-entrance {
+  from {
+    opacity: 0;
+    transform: scale(0.7) rotate(-5deg);
+  }
+}
+
+.welcome-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink-100);
+  margin-bottom: 8px;
+  letter-spacing: 2px;
+  animation: fade-up 0.6s 0.2s var(--ease-out) both;
+}
+
+.welcome-sub {
+  font-size: 14px;
+  color: var(--ink-60);
+  margin-bottom: 36px;
+  animation: fade-up 0.6s 0.35s var(--ease-out) both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.quick-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  max-width: 480px;
+  width: 100%;
+}
+
+.quick-btn {
+  padding: 10px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink-80);
+  text-align: left;
+  font-family: var(--font-body);
+  transition: all var(--t-fast);
+  line-height: 1.5;
+  animation: fade-up 0.5s var(--ease-out) both;
+}
+
+.quick-btn:nth-child(1) { animation-delay: 0.4s; }
+.quick-btn:nth-child(2) { animation-delay: 0.5s; }
+.quick-btn:nth-child(3) { animation-delay: 0.6s; }
+.quick-btn:nth-child(4) { animation-delay: 0.7s; }
+
+.quick-btn:hover {
+  border-color: var(--vermilion);
+  color: var(--vermilion);
+  background: var(--vermilion-faint);
+}
+
+/* ============================================
+   滚动条
+   ============================================ */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--ink-20); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-40); }
+
+/* ============================================
+   Ant Design 覆盖
+   ============================================ */
+.ant-btn-primary {
+  background: var(--vermilion) !important;
+  border-color: var(--vermilion) !important;
+}
+
+.ant-btn-primary:hover {
+  background: var(--vermilion-light) !important;
+  border-color: var(--vermilion-light) !important;
+}
+
+.ant-input {
+  font-family: var(--font-body) !important;
+}
+
+.ant-card {
+  border-radius: var(--r-md) !important;
+  border-color: var(--border) !important;
+}
+
+.ant-tag {
+  border-radius: var(--r-xs) !important;
+  font-size: 11px !important;
+}
+
+/* ============================================
+   数据管理页面 - 已入库文件表格
+   ============================================ */
+.ingestion-table {
+  margin-top: var(--sp-md);
+}
+
+.ingestion-table .ant-table {
+  background: transparent !important;
+  font-family: var(--font-body);
+}
+
+.ingestion-table .ant-table-thead > tr > th {
+  background: var(--bg-sunken) !important;
+  border-bottom: 2px solid var(--border) !important;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink-80);
+  padding: 10px 12px !important;
+}
+
+.ingestion-table .ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--border-faint) !important;
+  padding: 10px 12px !important;
+  font-size: 13px;
+  transition: background var(--t-fast);
+}
+
+.ingestion-table .ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover) !important;
+}
+
+.ingestion-table .ant-table-tbody > tr.ant-table-row-selected > td {
+  background: var(--vermilion-faint) !important;
+}
+
+.ingestion-table .ant-table-cell-row-hover {
+  background: var(--bg-hover) !important;
+}
+
+.ingestion-table .ant-checkbox-wrapper {
+  color: var(--ink-60);
+}
+
+.ingestion-table .ant-checkbox-checked .ant-checkbox-inner {
+  background-color: var(--vermilion);
+  border-color: var(--vermilion);
+}
+
+.ingestion-table .ant-pagination {
+  margin-top: var(--sp-md) !important;
+  font-family: var(--font-body);
+}
+
+.ingestion-table .ant-pagination-item-active {
+  border-color: var(--vermilion) !important;
+}
+
+.ingestion-table .ant-pagination-item-active a {
+  color: var(--vermilion) !important;
+}
+
+/* 文件名列 */
+.ingestion-filename {
+  font-family: "LXGW WenKai", "Courier New", monospace;
+  font-size: 13px;
+  color: var(--ink-100);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ingestion-filename .anticon {
+  color: var(--ink-40);
+  font-size: 14px;
+}
+
+/* Chunks 数量标签 */
+.ingestion-chunk-tag {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: var(--r-xs);
+  background: var(--vermilion-faint);
+  color: var(--vermilion);
+  border: 1px solid rgba(185, 68, 50, 0.2);
+}
+
+/* 时间列 */
+.ingestion-time {
+  font-size: 12px;
+  color: var(--ink-60);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 操作按钮 */
+.ingestion-action-btn {
+  color: var(--ink-40) !important;
+  transition: color var(--t-fast) !important;
+}
+
+.ingestion-action-btn:hover {
+  color: var(--vermilion) !important;
+}
+
+/* 工具栏按钮组 */
+.ingestion-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  padding: var(--sp-md) 0;
+  border-bottom: 1px solid var(--border-faint);
+  margin-bottom: var(--sp-md);
+}
+
+.ingestion-toolbar .ant-btn {
+  font-family: var(--font-body);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ingestion-toolbar .ant-btn-default {
+  border-color: var(--border);
+  color: var(--ink-80);
+}
+
+.ingestion-toolbar .ant-btn-default:hover {
+  border-color: var(--vermilion);
+  color: var(--vermilion);
+}
+
+.ingestion-toolbar .ant-btn-dangerous {
+  border-color: var(--border);
+  color: var(--ink-60);
+}
+
+.ingestion-toolbar .ant-btn-dangerous:hover {
+  border-color: var(--vermilion);
+  color: var(--vermilion);
+  background: var(--vermilion-faint);
+}
+
+/* 统计信息条 */
+.ingestion-stats-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-lg);
+  padding: var(--sp-sm) var(--sp-md);
+  background: var(--bg-sunken);
+  border-radius: var(--r-sm);
+  margin-bottom: var(--sp-md);
+  font-size: 13px;
+  color: var(--ink-60);
+}
+
+.ingestion-stats-bar .stat-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ingestion-stats-bar .stat-value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--ink-100);
+}
+
+.ingestion-stats-bar .stat-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+}
+
+/* ============================================
+   数据管理页面 - 原始文件管理
+   ============================================ */
+
+/* 文件类型标签 */
+.file-type-tag {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: var(--r-xs);
+}
+
+.file-type-tag.ingestable {
+  background: rgba(92, 122, 110, 0.1);
+  color: var(--slate-green);
+  border: 1px solid rgba(92, 122, 110, 0.3);
+}
+
+.file-type-tag.convertible {
+  background: rgba(212, 136, 6, 0.1);
+  color: #d48806;
+  border: 1px solid rgba(212, 136, 6, 0.3);
+}
+
+.file-type-tag.unsupported {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--ink-40);
+  border: 1px solid var(--border);
+}
+
+/* 文件状态标签 */
+.file-status-tag {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: var(--r-xs);
+}
+
+.file-status-tag.ready {
+  background: rgba(92, 122, 110, 0.1);
+  color: var(--slate-green);
+  border: 1px solid rgba(92, 122, 110, 0.3);
+}
+
+.file-status-tag.converted {
+  background: rgba(24, 144, 255, 0.1);
+  color: #1890ff;
+  border: 1px solid rgba(24, 144, 255, 0.3);
+}
+
+.file-status-tag.pending {
+  background: rgba(212, 136, 6, 0.1);
+  color: #d48806;
+  border: 1px solid rgba(212, 136, 6, 0.3);
+}
+
+.file-status-tag.unsupported {
+  background: rgba(185, 68, 50, 0.1);
+  color: var(--vermilion);
+  border: 1px solid rgba(185, 68, 50, 0.3);
+}
+
+/* 搜索和排序工具栏 */
+.file-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  padding: var(--sp-md) 0;
+  border-bottom: 1px solid var(--border-faint);
+  margin-bottom: var(--sp-md);
+  flex-wrap: wrap;
+}
+
+.file-toolbar .ant-input-search {
+  font-family: var(--font-body);
+}
+
+.file-toolbar .ant-select {
+  font-family: var(--font-body);
+}
+
+/* 预览抽屉 */
+.preview-drawer .ant-drawer-content {
+  background: var(--bg-base);
+}
+
+.preview-drawer .ant-drawer-header {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.preview-drawer .ant-drawer-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--ink-100);
+}
+
+.preview-content {
+  white-space: pre-wrap;
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--ink-80);
+  background: var(--bg-surface);
+  padding: 16px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  max-height: calc(100vh - 200px);
+  overflow: auto;
+}
