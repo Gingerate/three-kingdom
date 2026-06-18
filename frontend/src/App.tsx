@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { MessageOutlined, NodeIndexOutlined, DatabaseOutlined, BookOutlined } from '@ant-design/icons';
+import { ChatProvider } from './contexts/ChatContext';
 import ChatPage from './pages/ChatPage';
 import GraphPage from './pages/GraphPage';
 import DataPage from './pages/DataPage';
@@ -129,6 +130,7 @@ function TopBar() {
 function App() {
   return (
     <BrowserRouter>
+      <ChatProvider>
       {/* 电影质感层 */}
       <FilmGrain />
       <Vignette />
@@ -148,6 +150,7 @@ function App() {
           </Routes>
         </div>
       </div>
+      </ChatProvider>
     </BrowserRouter>
   );
 }

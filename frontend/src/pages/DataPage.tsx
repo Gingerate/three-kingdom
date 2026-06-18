@@ -40,6 +40,7 @@ export default function DataPage() {
   const [rawFiles, setRawFiles] = useState<RawFile[]>([]);
   const [rawFilesLoading, setRawFilesLoading] = useState(false);
   const [fileSearch, setFileSearch] = useState('');
+  const [fileStatusFilter, setFileStatusFilter] = useState<string>('');
   const [fileSortField, setFileSortField] = useState<string>('filename');
   const [fileSortOrder, setFileSortOrder] = useState<'ascend' | 'descend'>('ascend');
   const [previewFile, setPreviewFile] = useState<string | null>(null);
@@ -190,6 +191,11 @@ export default function DataPage() {
       );
     }
 
+    // 状态过滤
+    if (fileStatusFilter) {
+      result = result.filter(f => f.status === fileStatusFilter);
+    }
+
     // 排序
     result.sort((a, b) => {
       let cmp = 0;
@@ -204,7 +210,7 @@ export default function DataPage() {
     });
 
     return result;
-  }, [rawFiles, fileSearch, fileSortField, fileSortOrder]);
+  }, [rawFiles, fileSearch, fileStatusFilter, fileSortField, fileSortOrder]);
 
   /** 监听 SSE 进度 */
   const listenProgress = (taskId: string) => {
@@ -611,6 +617,19 @@ export default function DataPage() {
               onChange={(e) => setFileSearch(e.target.value)}
             />
             <Select
+              placeholder="状态筛选"
+              allowClear
+              style={{ width: 120 }}
+              value={fileStatusFilter || undefined}
+              onChange={(v) => setFileStatusFilter(v || '')}
+              options={[
+                { value: 'ready', label: '可入库' },
+                { value: 'converted', label: '已转换' },
+                { value: 'pending', label: '待转换' },
+                { value: 'unsupported', label: '不支持' },
+              ]}
+            />
+            <Select
               placeholder="排序方式"
               style={{ width: 120 }}
               value={fileSortField}
@@ -655,7 +674,7 @@ export default function DataPage() {
                   title: '文件名',
                   dataIndex: 'filename',
                   key: 'filename',
-                  ellipsis: true,
+                  width: 260,
                   sorter: true,
                   render: (text: string) => (
                     <span className="ingestion-filename">

@@ -44,12 +44,14 @@ export async function chatStream(
   onEvent: (event: StreamEvent) => void,
   onDone: () => void,
   onError: (error: Error) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   try {
     const response = await fetch(`${API_BASE}/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question, session_id: sessionId }),
+      signal,
     });
 
     if (!response.ok) {

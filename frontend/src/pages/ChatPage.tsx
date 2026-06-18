@@ -1,16 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Input, Button, Tag, Spin, Divider } from 'antd';
 import { SendOutlined, LinkOutlined } from '@ant-design/icons';
-import { chatStream, type StreamEvent } from '../services/api';
-
-interface Message {
-  role: 'user' | 'assistant';
-  content: string;
-  sources?: string[];
-  route?: string;
-  subQuestions?: string[];
-  isStreaming?: boolean;
-}
+import { useChat } from '../contexts/ChatContext';
 
 const QUICK_QUESTIONS = [
   '官渡之战的经过是什么？',
@@ -20,90 +11,19 @@ const QUICK_QUESTIONS = [
 ];
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { messages, loading, streamStatus, handleSend } = useChat();
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [streamStatus, setStreamStatus] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSend = async (text?: string) => {
+  const onSend = async (text?: string) => {
     const question = (text || input).trim();
     if (!question || loading) return;
-
-    setMessages((prev) => [...prev, { role: 'user', content: question }]);
     setInput('');
-    setLoading(true);
-    setMessages((prev) => [...prev, { role: 'assistant', content: '', isStreaming: true }]);
-
-    await chatStream(
-      question,
-      undefined,
-      (event: StreamEvent) => {
-        const { node, updates } = event;
-        const statusMap: Record<string, string> = {
-          router: '分析问题中...',
-          decompose: '分解问题中...',
-          retrieve: '检索资料中...',
-          grade: '筛选资料中...',
-          generate: '生成回答中...',
-          reflect: '检查质量中...',
-          finalize: '整理完成',
-          increment_retry: '重新检索中...',
-        };
-        setStreamStatus(statusMap[node] || '');
-
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated.length - 1;
-          if (last >= 0 && updated[last].role === 'assistant') {
-            const msg = { ...updated[last] };
-            if (updates.final_answer) {
-              msg.content = updates.final_answer;
-              msg.isStreaming = false;
-            } else if (updates.generation && !msg.content) {
-              msg.content = updates.generation;
-            }
-            if (updates.sources) msg.sources = updates.sources;
-            if (updates.route) msg.route = updates.route;
-            if (updates.sub_questions) msg.subQuestions = updates.sub_questions;
-            updated[last] = msg;
-          }
-          return updated;
-        });
-      },
-      () => {
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated.length - 1;
-          if (last >= 0 && updated[last].role === 'assistant') {
-            updated[last] = { ...updated[last], isStreaming: false };
-          }
-          return updated;
-        });
-        setLoading(false);
-        setStreamStatus('');
-      },
-      (error) => {
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated.length - 1;
-          if (last >= 0 && updated[last].role === 'assistant') {
-            updated[last] = {
-              ...updated[last],
-              content: `发生了错误：${error.message}`,
-              isStreaming: false,
-            };
-          }
-          return updated;
-        });
-        setLoading(false);
-        setStreamStatus('');
-      },
-    );
+    await handleSend(question);
   };
 
   const isEmpty = messages.length === 0;
@@ -138,7 +58,7 @@ export default function ChatPage() {
                 <button
                   key={q}
                   className="quick-btn"
-                  onClick={() => handleSend(q)}
+                  onClick={() => onSend(q)}
                 >
                   {q}
                 </button>
@@ -216,7 +136,7 @@ export default function ChatPage() {
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onPressEnter={() => handleSend()}
+            onPressEnter={() => onSend()}
             placeholder="输入你的三国问题..."
             disabled={loading}
             variant="borderless"
@@ -229,7 +149,7 @@ export default function ChatPage() {
           <Button
             type="primary"
             icon={<SendOutlined />}
-            onClick={() => handleSend()}
+            onClick={() => onSend()}
             loading={loading}
             style={{ borderRadius: 'var(--r-sm)' }}
           />
