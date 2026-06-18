@@ -1,0 +1,119 @@
+"""Embedding 模块 —— stella-mrl-large-zh-v3.5-1792d，BNB 4-bit 量化，1024d 输出"""
+
+from __future__ import annotations
+
+import torch
+from langchain_core.embeddings import Embeddings
+
+from app.core.config import settings
+
+
+class LocalHuggingFaceEmbeddings(Embeddings):
+    """本地 Hugging Face embedding 模型，支持 BNB 4-bit 量化和 MRL 降维"""
+
+    def __init__(
+        self,
+        model_path: str | None = None,
+        device: str | None = None,
+        target_dim: int | None = None,
+        quantize: bool = True,
+    ):
+        self.model_path = model_path or settings.embedding_model_path
+        self.device = device or settings.embedding_device
+        self.target_dim = target_dim or settings.embedding_dim
+        self.quantize = quantize
+        self._model = None
+        self._tokenizer = None
+
+    def _load_model(self):
+        """延迟加载模型"""
+        if self._model is not None:
+            return
+
+        from transformers import AutoModel
+        from transformers import BertTokenizer
+
+        print(f"正在加载 embedding 模型: {self.model_path}")
+
+        # BertTokenizer 只需要 vocab.txt，不依赖 tokenizer_config.json
+        self._tokenizer = BertTokenizer.from_pretrained(self.model_path)
+
+        if self.quantize:
+            try:
+                from bitsandbytes import BitsAndBytesConfig
+
+                bnb_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=torch.float16,
+                    bnb_4bit_quant_type="nf4",
+                )
+                self._model = AutoModel.from_pretrained(
+                    self.model_path,
+                    quantization_config=bnb_config,
+                    device_map=self.device,
+                )
+            except ImportError:
+                print("bitsandbytes 未安装，跳过量化，使用 FP16")
+                self._model = AutoModel.from_pretrained(
+                    self.model_path,
+                    torch_dtype=torch.float16,
+                ).to(self.device)
+        else:
+            self._model = AutoModel.from_pretrained(
+                self.model_path,
+                torch_dtype=torch.float16,
+            ).to(self.device)
+
+        self._model.eval()
+        print(f"模型加载完成，目标维度: {self.target_dim}")
+
+    def _embed(self, text: str) -> list[float]:
+        """单条文本 embedding"""
+        self._load_model()
+
+        inputs = self._tokenizer(
+            text,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+            padding=True,
+        ).to(self._model.device)
+
+        with torch.no_grad():
+            outputs = self._model(**inputs)
+
+        # Mean pooling
+        attention_mask = inputs["attention_mask"]
+        token_embeddings = outputs.last_hidden_state
+        input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+        embedding = torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(
+            input_mask_expanded.sum(1), min=1e-9
+        )
+
+        # L2 归一化
+        embedding = torch.nn.functional.normalize(embedding, p=2, dim=1)
+
+        # MRL 降维：截取前 target_dim 维
+        embedding = embedding[:, : self.target_dim]
+
+        return embedding[0].cpu().float().tolist()
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """批量 embedding 多条文本"""
+        return [self._embed(text) for text in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        """embedding 查询文本"""
+        return self._embed(text)
+
+
+# 全局单例
+_embedding_instance: LocalHuggingFaceEmbeddings | None = None
+
+
+def get_embeddings() -> LocalHuggingFaceEmbeddings:
+    """获取 embedding 模型单例"""
+    global _embedding_instance
+    if _embedding_instance is None:
+        _embedding_instance = LocalHuggingFaceEmbeddings()
+    return _embedding_instance
