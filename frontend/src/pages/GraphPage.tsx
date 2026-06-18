@@ -66,11 +66,15 @@ export default function GraphPage() {
         style: {
           size: (d: any) => {
             const sizes: Record<string, number> = { person: 38, event: 32, force: 42 };
-            return sizes[d.data?.type as string] || 38;
+            const base = sizes[d.data?.type as string] || 38;
+            return d.data?._highlighted ? base * 1.3 : base;
           },
-          fill: (d: any) => ENTITY_COLORS[d.data?.type] || '#999',
-          stroke: '#f7f3ec',
-          lineWidth: 2,
+          fill: (d: any) => {
+            if (d.data?._highlighted) return '#ff6b35';
+            return ENTITY_COLORS[d.data?.type] || '#999';
+          },
+          stroke: (d: any) => d.data?._highlighted ? '#ff6b35' : '#f7f3ec',
+          lineWidth: (d: any) => d.data?._highlighted ? 3 : 2,
           labelText: (d: any) => d.data?.label || d.id,
           labelFontSize: 12,
           labelFill: '#1a1a1a',
@@ -269,7 +273,7 @@ export default function GraphPage() {
                 </h4>
                 {selectedRelations.map((rel, i) => (
                   <Tag key={i} style={{ margin: '3px', fontSize: 12 }}>
-                    {rel.source_type}:{rel.source_id} → {rel.relation_type} → {rel.target_type}:{rel.target_id}
+                    {rel.source_name || `${rel.source_type}:${rel.source_id}`} → {rel.relation_type} → {rel.target_name || `${rel.target_type}:${rel.target_id}`}
                   </Tag>
                 ))}
               </div>

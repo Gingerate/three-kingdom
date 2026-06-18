@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.core.config import settings
 from app.core.database import save_message, save_knowledge_summary
+from app.utils.parsers import parse_llm_json
 
 
 # ==================== 对话存储 ====================
@@ -43,13 +43,9 @@ EXTRACT_PROMPT = """你是一个知识提炼专家。从以下问答对中提取
 
 def extract_knowledge(question: str, answer: str) -> list[str]:
     """从问答对中提取精华摘要"""
-    llm = ChatOpenAI(
-        model=settings.llm_model,
-        api_key=settings.llm_api_key,
-        base_url=settings.llm_base_url,
-        temperature=0.1,
-        max_tokens=1024,
-    )
+    from app.rag.agent import get_llm
+
+    llm = get_llm(temperature=0.1)
 
     try:
         response = llm.invoke([
@@ -57,35 +53,27 @@ def extract_knowledge(question: str, answer: str) -> list[str]:
             HumanMessage(content="请提取精华摘要"),
         ])
 
-        text = response.content.strip()
-        if "```json" in text:
-            text = text[text.index("```json") + 7:text.index("```")].strip()
-        elif "```" in text:
-            text = text[text.index("```") + 3:text.index("```")].strip()
+        data = parse_llm_json(response.content)
+        if not data:
+            return []
 
-        data = json.loads(text)
+        # 兼容多种返回格式
         summaries = data.get("summaries", [])
+        if not summaries:
+            summaries = data.get("summary", [])
+        if not summaries and isinstance(data, list):
+            summaries = data
+        if not summaries and isinstance(data, dict):
+            for v in data.values():
+                if isinstance(v, list) and v:
+                    summaries = v
+                    break
+
         # 过滤空字符串
-        return [s for s in summaries if s.strip()]
+        return [s for s in summaries if isinstance(s, str) and s.strip()]
     except Exception as e:
-        print(f"知识提取失败: {e}")
+        print(f"知识提取失败: {type(e).__name__}: {e}")
         return []
-
-
-def extract_and_store(session_id: str, question: str, answer: str,
-                      sources: list[str]) -> list[str]:
-    """提取精华摘要并存储到数据库"""
-    summaries = extract_knowledge(question, answer)
-
-    for summary in summaries:
-        save_knowledge_summary(
-            session_id=session_id,
-            question=question,
-            summary=summary,
-            sources=sources,
-        )
-
-    return summaries
 
 
 # ==================== 向量库存储 ====================

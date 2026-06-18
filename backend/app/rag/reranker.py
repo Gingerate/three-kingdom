@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import torch
 from langchain_core.documents import Document
 
@@ -93,13 +94,16 @@ class LocalReranker:
         return [doc for _, doc in scored_docs[:top_k]]
 
 
-# 全局单例
+# 全局单例（带并发保护）
 _reranker_instance: LocalReranker | None = None
+_reranker_lock = threading.Lock()
 
 
 def get_reranker() -> LocalReranker:
-    """获取 Reranker 单例"""
+    """获取 Reranker 单例（线程安全）"""
     global _reranker_instance
     if _reranker_instance is None:
-        _reranker_instance = LocalReranker()
+        with _reranker_lock:
+            if _reranker_instance is None:
+                _reranker_instance = LocalReranker()
     return _reranker_instance

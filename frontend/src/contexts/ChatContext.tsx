@@ -14,6 +14,7 @@ interface ChatContextValue {
   messages: Message[];
   loading: boolean;
   streamStatus: string;
+  sessionId?: string;
   handleSend: (text?: string) => Promise<void>;
   clearMessages: () => void;
 }
@@ -24,6 +25,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [streamStatus, setStreamStatus] = useState('');
+  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const abortRef = useRef<AbortController | null>(null);
 
   const handleSend = useCallback(async (text?: string) => {
@@ -44,8 +46,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     await chatStream(
       question,
-      undefined,
+      sessionId,
       (event: StreamEvent) => {
+        // 捕获后端返回的 session_id
+        if (event.session_id && !sessionId) {
+          setSessionId(event.session_id);
+        }
         const { node, updates } = event;
         const statusMap: Record<string, string> = {
           router: '分析问题中...',
@@ -67,7 +73,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             if (updates.final_answer) {
               msg.content = updates.final_answer;
               msg.isStreaming = false;
-            } else if (updates.generation && !msg.content) {
+            } else if (updates.generation) {
+              // 重试时 generation 会更新，始终同步最新内容
               msg.content = updates.generation;
             }
             if (updates.sources) msg.sources = updates.sources;
@@ -112,7 +119,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       },
       controller.signal,
     );
-  }, [loading]);
+  }, [loading, sessionId]);
 
   const clearMessages = useCallback(() => {
     if (abortRef.current) {
@@ -122,10 +129,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages([]);
     setLoading(false);
     setStreamStatus('');
+    setSessionId(undefined);
   }, []);
 
   return (
-    <ChatContext.Provider value={{ messages, loading, streamStatus, handleSend, clearMessages }}>
+    <ChatContext.Provider value={{ messages, loading, streamStatus, sessionId, handleSend, clearMessages }}>
       {children}
     </ChatContext.Provider>
   );

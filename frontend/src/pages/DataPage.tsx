@@ -1,12 +1,26 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Upload, Button, Checkbox, message, Table, Popconfirm, Input, Select, Drawer, Space, Tag } from 'antd';
-import { InboxOutlined, SyncOutlined, DatabaseOutlined, FileTextOutlined, CloudUploadOutlined, DeleteOutlined, ClearOutlined, ReloadOutlined, SearchOutlined, SwapOutlined } from '@ant-design/icons';
+import { InboxOutlined, SyncOutlined, DatabaseOutlined, FileTextOutlined, CloudUploadOutlined, DeleteOutlined, ClearOutlined, ReloadOutlined, SearchOutlined, SwapOutlined, BranchesOutlined } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
 import InkProgress from '../components/InkProgress';
-const API_BASE = 'http://localhost:8000/api';
+import {
+  getStats,
+  getIngestionFiles,
+  deleteIngestionFile,
+  batchDeleteIngestionFiles,
+  cleanupDuplicates,
+  getRawFiles,
+  convertFile,
+  deleteRawFile,
+  previewFile,
+  uploadAndIngest,
+  ingestData,
+  extractBatch,
+} from '../services/api';
 
 interface IngestionFile {
   source_file: string;
+  source_name: string;
   chunk_count: number;
   first_ingested: string;
   last_ingested: string;
@@ -36,6 +50,13 @@ export default function DataPage() {
   const [filesLoading, setFilesLoading] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
+  // 批量抽取状态
+  const [extractLoading, setExtractLoading] = useState(false);
+  const [extractProgress, setExtractProgress] = useState(0);
+  const [extractProgressStatus, setExtractProgressStatus] = useState<'active' | 'success' | 'exception'>('active');
+  const [extractProgressText, setExtractProgressText] = useState('');
+  const [extractStage, setExtractStage] = useState('');
+
   // 原始文件管理状态
   const [rawFiles, setRawFiles] = useState<RawFile[]>([]);
   const [rawFilesLoading, setRawFilesLoading] = useState(false);
@@ -51,8 +72,8 @@ export default function DataPage() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch(`${API_BASE}/stats`);
-      setStats(await res.json());
+      const data = await getStats();
+      setStats(data);
     } catch {
       message.error('获取统计信息失败');
     }
@@ -61,8 +82,7 @@ export default function DataPage() {
   const fetchIngestionFiles = async () => {
     setFilesLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/ingestion/files`);
-      const data = await res.json();
+      const data = await getIngestionFiles();
       setIngestionFiles(data.files || []);
     } catch {
       message.error('获取已入库文件列表失败');
@@ -73,7 +93,7 @@ export default function DataPage() {
 
   const handleDeleteFile = async (sourceFile: string) => {
     try {
-      await fetch(`${API_BASE}/ingestion/files/${encodeURIComponent(sourceFile)}`, { method: 'DELETE' });
+      await deleteIngestionFile(sourceFile);
       message.success('删除成功');
       fetchIngestionFiles();
       fetchStats();
@@ -85,11 +105,7 @@ export default function DataPage() {
   const handleBatchDelete = async () => {
     if (selectedFiles.length === 0) return;
     try {
-      await fetch(`${API_BASE}/ingestion/files/batch-delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: selectedFiles }),
-      });
+      await batchDeleteIngestionFiles(selectedFiles);
       message.success(`批量删除 ${selectedFiles.length} 个文件成功`);
       setSelectedFiles([]);
       fetchIngestionFiles();
@@ -101,8 +117,7 @@ export default function DataPage() {
 
   const handleCleanupDuplicates = async () => {
     try {
-      const res = await fetch(`${API_BASE}/ingestion/cleanup-duplicates`, { method: 'POST' });
-      const data = await res.json();
+      const data = await cleanupDuplicates();
       message.success(`清理完成，删除了 ${data.cleaned_count} 个重复记录`);
       fetchIngestionFiles();
     } catch {
@@ -114,8 +129,7 @@ export default function DataPage() {
   const fetchRawFiles = async () => {
     setRawFilesLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/files`);
-      const data = await res.json();
+      const data = await getRawFiles();
       setRawFiles(data.files || []);
     } catch {
       message.error('获取原始文件列表失败');
@@ -126,12 +140,7 @@ export default function DataPage() {
 
   const handleConvertFile = async (filepath: string) => {
     try {
-      const res = await fetch(`${API_BASE}/files/convert`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filepath }),
-      });
-      const data = await res.json();
+      const data = await convertFile(filepath);
       if (data.status === 'ok') {
         message.success('转换成功');
         fetchRawFiles();
@@ -145,7 +154,7 @@ export default function DataPage() {
 
   const handleDeleteRawFile = async (filepath: string) => {
     try {
-      await fetch(`${API_BASE}/files/${encodeURIComponent(filepath)}`, { method: 'DELETE' });
+      await deleteRawFile(filepath);
       message.success('删除成功');
       fetchRawFiles();
     } catch {
@@ -157,12 +166,11 @@ export default function DataPage() {
     setPreviewLoading(true);
     setPreviewFile(filepath);
     try {
-      const res = await fetch(`${API_BASE}/files/${encodeURIComponent(filepath)}/preview`);
-      const data = await res.json();
-      if (data.status === 'ok') {
+      const data = await previewFile(filepath);
+      if (data.preview) {
         setPreviewContent(data.preview);
       } else {
-        message.error(data.message || '预览失败');
+        message.error('预览失败');
         setPreviewFile(null);
       }
     } catch {
@@ -215,7 +223,7 @@ export default function DataPage() {
   /** 监听 SSE 进度 */
   const listenProgress = (taskId: string) => {
     console.log('[SSE] 开始监听任务进度:', taskId);
-    const es = new EventSource(`${API_BASE}/ingest/progress/${taskId}`);
+    const es = new EventSource(`http://localhost:8000/api/ingest/progress/${taskId}`);
     eventSourceRef.current = es;
 
     es.onmessage = (e) => {
@@ -257,6 +265,11 @@ export default function DataPage() {
       console.error('[SSE] 连接错误:', err);
       es.close();
       eventSourceRef.current = null;
+      // 恢复 UI 状态，避免永久卡在"处理中..."
+      setLoading(false);
+      setProgressStatus('exception');
+      setProgressText('连接中断，请重试');
+      message.error('进度连接中断');
     };
   };
 
@@ -268,10 +281,7 @@ export default function DataPage() {
     setStage('上传中');
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch(`${API_BASE}/ingest/upload`, { method: 'POST', body: formData });
-      const data = await res.json();
+      const data = await uploadAndIngest(file as File);
 
       if (data.status === 'ok') {
         setProgress(100);
@@ -301,20 +311,95 @@ export default function DataPage() {
     setProgressText('正在启动入库任务...');
 
     try {
-      const res = await fetch(`${API_BASE}/ingest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clear_first: clearFirst, force_reingest: forceReingest }),
-      });
-      const data = await res.json();
+      const data = await ingestData({ clear_first: clearFirst, force_reingest: forceReingest });
       if (data.status === 'ok' && data.task_id) {
         listenProgress(data.task_id);
+      } else {
+        setProgressStatus('exception');
+        setProgressText(data.message || '启动失败');
+        message.error(data.message || '入库启动失败');
+        setLoading(false);
       }
     } catch {
       setProgressStatus('exception');
       setProgressText('启动失败');
       message.error('入库启动失败');
       setLoading(false);
+    }
+  };
+
+  /** 监听批量抽取 SSE 进度 */
+  const listenExtractProgress = (taskId: string) => {
+    console.log('[SSE] 开始监听批量抽取进度:', taskId);
+    const es = new EventSource(`http://localhost:8000/api/ingest/progress/${taskId}`);
+    eventSourceRef.current = es;
+
+    es.onmessage = (e) => {
+      if (e.data === '[DONE]') {
+        console.log('[SSE] 收到完成信号');
+        es.close();
+        eventSourceRef.current = null;
+        return;
+      }
+      try {
+        const data = JSON.parse(e.data);
+        console.log('[SSE] 收到进度更新:', data);
+        setExtractProgress(data.percent || 0);
+        setExtractStage(data.stage || '');
+        setExtractProgressText(data.message || '');
+
+        if (data.done) {
+          console.log('[SSE] 任务完成:', data);
+          if (data.error) {
+            setExtractProgressStatus('exception');
+            message.error(data.error);
+          } else {
+            setExtractProgress(100);
+            setExtractProgressStatus('success');
+            message.success('批量抽取完成，结果已加入审核队列');
+          }
+          setExtractLoading(false);
+          es.close();
+          eventSourceRef.current = null;
+        }
+      } catch (err) {
+        console.error('[SSE] 解析数据失败:', err);
+      }
+    };
+
+    es.onerror = (err) => {
+      console.error('[SSE] 连接错误:', err);
+      es.close();
+      eventSourceRef.current = null;
+      setExtractLoading(false);
+      setExtractProgressStatus('exception');
+      setExtractProgressText('连接中断，请重试');
+      message.error('进度连接中断');
+    };
+  };
+
+  const handleExtractBatch = async () => {
+    setExtractLoading(true);
+    setExtractProgress(0);
+    setExtractProgressStatus('active');
+    setExtractStage('启动中');
+    setExtractProgressText('正在启动批量抽取任务...');
+
+    try {
+      const data = await extractBatch();
+      if (data.status === 'ok' && data.task_id) {
+        listenExtractProgress(data.task_id);
+      } else {
+        setExtractProgressStatus('exception');
+        setExtractProgressText(data.message || '启动失败');
+        message.error(data.message || '批量抽取启动失败');
+        setExtractLoading(false);
+      }
+    } catch {
+      setExtractProgressStatus('exception');
+      setExtractProgressText('启动失败');
+      message.error('批量抽取启动失败');
+      setExtractLoading(false);
     }
   };
 
@@ -416,6 +501,35 @@ export default function DataPage() {
           )}
         </Section>
 
+        {/* 批量知识抽取 */}
+        <Section title="批量知识抽取">
+          <p style={{ color: 'var(--ink-60)', fontSize: 13, marginBottom: 14 }}>
+            对 raw/ 目录下的所有语料进行知识抽取，结果进入审核队列
+          </p>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
+            <Button
+              type="primary"
+              size="large"
+              loading={extractLoading}
+              onClick={handleExtractBatch}
+              icon={<BranchesOutlined />}
+              style={{ flex: 1 }}
+              disabled={extractLoading}
+            >
+              {extractLoading ? '抽取中...' : '执行批量抽取'}
+            </Button>
+          </div>
+
+          {(extractLoading || extractProgress === 100) && (
+            <InkProgress
+              percent={extractProgress}
+              stage={extractStage}
+              message={extractProgressText}
+              status={extractProgressStatus}
+            />
+          )}
+        </Section>
+
         {/* 已入库文件管理 */}
         <Section title="已入库文件管理">
           {/* 统计信息条 */}
@@ -502,14 +616,19 @@ export default function DataPage() {
               }}
               columns={[
                 {
-                  title: '文件名',
+                  title: '文件路径',
                   dataIndex: 'source_file',
                   key: 'source_file',
                   ellipsis: true,
-                  render: (text: string) => (
+                  render: (text: string, record: any) => (
                     <span className="ingestion-filename">
                       <FileTextOutlined />
                       {text}
+                      {record.source_name && record.source_name !== text && (
+                        <Tag color="blue" style={{ marginLeft: 8, fontSize: 11 }}>
+                          {record.source_name}
+                        </Tag>
+                      )}
                     </span>
                   ),
                 },

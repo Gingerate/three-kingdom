@@ -1,11 +1,13 @@
 import { useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { MessageOutlined, NodeIndexOutlined, DatabaseOutlined, BookOutlined } from '@ant-design/icons';
+import { MessageOutlined, NodeIndexOutlined, DatabaseOutlined, BookOutlined, AuditOutlined, CloudOutlined } from '@ant-design/icons';
 import { ChatProvider } from './contexts/ChatContext';
 import ChatPage from './pages/ChatPage';
 import GraphPage from './pages/GraphPage';
 import DataPage from './pages/DataPage';
 import WikiPage from './pages/WikiPage';
+import ReviewPage from './pages/ReviewPage';
+import CrawlPage from './pages/CrawlPage';
 
 /* ── 胶片颗粒 ── */
 function FilmGrain() {
@@ -99,6 +101,8 @@ function TopBar() {
     { key: 'chat', icon: <MessageOutlined />, label: '智能问答', path: '/chat' },
     { key: 'wiki', icon: <BookOutlined />, label: '知识沉淀', path: '/wiki' },
     { key: 'graph', icon: <NodeIndexOutlined />, label: '知识图谱', path: '/graph' },
+    { key: 'review', icon: <AuditOutlined />, label: '审核队列', path: '/review' },
+    { key: 'crawl', icon: <CloudOutlined />, label: '论文爬虫', path: '/crawl' },
     { key: 'data', icon: <DatabaseOutlined />, label: '数据管理', path: '/data' },
   ];
 
@@ -145,6 +149,8 @@ function App() {
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/wiki" element={<WikiPage />} />
             <Route path="/graph" element={<GraphPage />} />
+            <Route path="/review" element={<ReviewPage />} />
+            <Route path="/crawl" element={<CrawlPage />} />
             <Route path="/data" element={<DataPage />} />
             <Route path="*" element={<Navigate to="/chat" replace />} />
           </Routes>

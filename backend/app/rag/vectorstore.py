@@ -93,6 +93,17 @@ def search_vectorstore(query: str, k: int = 20,
     return vectorstore.similarity_search(query, k=k)
 
 
+def search_memory(query: str, k: int = 5,
+                  embeddings: LocalHuggingFaceEmbeddings | None = None) -> list[Document]:
+    """从对话记忆 collection 中检索相关历史摘要"""
+    try:
+        vectorstore = get_vectorstore(embeddings, collection_name="qa_memory")
+        return vectorstore.similarity_search(query, k=k)
+    except Exception:
+        # qa_memory collection 可能尚未创建（首次使用前），静默返回空
+        return []
+
+
 def get_vectorstore_stats(embeddings: LocalHuggingFaceEmbeddings | None = None) -> dict:
     """获取向量库统计信息"""
     vectorstore = get_vectorstore(embeddings)

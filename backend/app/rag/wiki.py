@@ -13,7 +13,6 @@ from app.core.database import (
     save_wiki_page,
     get_wiki_pages,
     get_wiki_page,
-    get_recent_sessions,
 )
 
 
@@ -135,6 +134,10 @@ def distill_and_save(session_ids: list[str] | None = None,
     if not summaries:
         return {"status": "error", "message": "没有可用的知识摘要"}
 
+    # 如果没有指定主题，先检测（避免 generate_wiki 内部再检测一次）
+    if not topic:
+        topic = detect_topic(summaries)
+
     # 生成 Wiki
     title, content = generate_wiki(summaries, topic_hint=topic)
 
@@ -143,7 +146,7 @@ def distill_and_save(session_ids: list[str] | None = None,
     save_wiki_page(
         title=title,
         content=content,
-        topic=topic or detect_topic(summaries),
+        topic=topic,
         source_sessions=source_sessions,
     )
 

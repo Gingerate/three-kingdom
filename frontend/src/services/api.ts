@@ -29,13 +29,7 @@ export interface ChatResponse {
 export interface StreamEvent {
   node: string;
   updates: Record<string, any>;
-}
-
-export async function chat(question: string, sessionId?: string): Promise<ChatResponse> {
-  return request('/chat', {
-    method: 'POST',
-    body: JSON.stringify({ question, session_id: sessionId }),
-  });
+  session_id?: string;
 }
 
 export async function chatStream(
@@ -92,6 +86,101 @@ export async function chatStream(
   } catch (error) {
     onError(error instanceof Error ? error : new Error(String(error)));
   }
+}
+
+// ==================== 知识图谱 ====================
+
+export async function getWikiPages(topic?: string): Promise<{ pages: any[] }> {
+  const params = topic ? `?topic=${encodeURIComponent(topic)}` : '';
+  return request(`/wiki${params}`);
+}
+
+export async function getWikiPage(pageId: number): Promise<any> {
+  return request(`/wiki/${pageId}`);
+}
+
+export async function updateWikiPage(pageId: number, data: {
+  title?: string;
+  content?: string;
+  topic?: string;
+}): Promise<any> {
+  return request(`/wiki/${pageId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteWikiPage(pageId: number): Promise<any> {
+  return request(`/wiki/${pageId}`, { method: 'DELETE' });
+}
+
+export async function getKnowledgeSummaries(limit = 100): Promise<{ summaries: any[] }> {
+  return request(`/knowledge?limit=${limit}`);
+}
+
+export async function getKnowledgeStats(): Promise<{ total: number; oldest: string; newest: string }> {
+  return request('/knowledge/stats');
+}
+
+export async function cleanupKnowledge(days = 30): Promise<{ deleted_count: number }> {
+  return request(`/knowledge/cleanup?days=${days}`, { method: 'POST' });
+}
+
+export async function distillWiki(sessionIds?: string[], topic?: string): Promise<any> {
+  return request('/wiki/distill', {
+    method: 'POST',
+    body: JSON.stringify({ session_ids: sessionIds, topic }),
+  });
+}
+
+// ==================== 入库管理 ====================
+
+export async function getIngestionFiles(): Promise<{ files: any[] }> {
+  return request('/ingestion/files');
+}
+
+export async function deleteIngestionFile(sourceFile: string): Promise<any> {
+  return request(`/ingestion/files/${encodeURIComponent(sourceFile)}`, { method: 'DELETE' });
+}
+
+export async function batchDeleteIngestionFiles(files: string[]): Promise<any> {
+  return request('/ingestion/files/batch-delete', {
+    method: 'POST',
+    body: JSON.stringify({ files }),
+  });
+}
+
+export async function cleanupDuplicates(): Promise<{ cleaned_count: number }> {
+  return request('/ingestion/cleanup-duplicates', { method: 'POST' });
+}
+
+// ==================== 原始文件管理 ====================
+
+export async function getRawFiles(): Promise<{ files: any[] }> {
+  return request('/files');
+}
+
+export async function convertFile(filepath: string): Promise<any> {
+  return request('/files/convert', {
+    method: 'POST',
+    body: JSON.stringify({ filepath }),
+  });
+}
+
+export async function deleteRawFile(filepath: string): Promise<any> {
+  return request(`/files/${encodeURIComponent(filepath)}`, { method: 'DELETE' });
+}
+
+export async function previewFile(filepath: string): Promise<{ preview: string; total_length: number }> {
+  return request(`/files/${encodeURIComponent(filepath)}/preview`);
+}
+
+export async function uploadAndIngest(file: File): Promise<any> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await fetch(`${API_BASE}/ingest/upload`, { method: 'POST', body: formData });
+  if (!response.ok) throw new Error(`API Error: ${response.status}`);
+  return response.json();
 }
 
 // ==================== 知识图谱 ====================
@@ -183,14 +272,17 @@ export async function approveReview(
   });
 }
 
-export async function rejectReview(reviewId: number): Promise<any> {
-  return request(`/review/${reviewId}/reject`, { method: 'POST' });
+export async function rejectReview(reviewId: number, reason: string = ''): Promise<any> {
+  return request(`/review/${reviewId}/reject?reason=${encodeURIComponent(reason)}`, { method: 'POST' });
 }
 
 // ==================== 语料入库 ====================
 
-export async function ingestData(): Promise<any> {
-  return request('/ingest', { method: 'POST' });
+export async function ingestData(options?: { clear_first?: boolean; force_reingest?: boolean }): Promise<any> {
+  return request('/ingest', {
+    method: 'POST',
+    body: JSON.stringify(options || {}),
+  });
 }
 
 export async function getStats(): Promise<any> {

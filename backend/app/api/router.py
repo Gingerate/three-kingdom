@@ -6,7 +6,7 @@ from pydantic import BaseModel
 import json
 import uuid
 
-from app.models.schemas import ChatRequest, ChatResponse
+from app.models.schemas import ChatRequest
 
 api_router = APIRouter()
 
@@ -20,39 +20,10 @@ async def health_check():
 
 # ==================== 智能问答 ====================
 
-@api_router.post("/chat")
-async def chat(req: ChatRequest):
-    """智能问答（Agentic RAG）"""
-    from app.rag.agent import run_rag
-    from app.rag.memory import remember_conversation
-
-    session_id = req.session_id or str(uuid.uuid4())
-    result = run_rag(req.question, session_id)
-
-    # 自动记忆：存储对话 + 提取摘要 + 存入向量库
-    try:
-        remember_conversation(
-            session_id=session_id,
-            question=req.question,
-            answer=result["answer"],
-            sources=result["sources"],
-            route=result["route"],
-        )
-    except Exception as e:
-        print(f"记忆存储失败（不影响回答）: {e}")
-
-    return {
-        "answer": result["answer"],
-        "sources": result["sources"],
-        "route": result["route"],
-        "sub_questions": result["sub_questions"],
-        "session_id": session_id,
-    }
-
-
 @api_router.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
     """流式智能问答（Agentic RAG，逐节点输出进度）"""
+    import asyncio
     from app.rag.agent import run_rag_stream
     from app.rag.memory import remember_conversation
 
@@ -80,20 +51,23 @@ async def chat_stream(req: ChatRequest):
             event["session_id"] = session_id
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
-        # 流结束后自动记忆
-        if final_answer:
-            try:
-                remember_conversation(
-                    session_id=session_id,
-                    question=req.question,
-                    answer=final_answer,
-                    sources=sources,
-                    route=route,
-                )
-            except Exception as e:
-                print(f"记忆存储失败: {e}")
-
         yield "data: [DONE]\n\n"
+
+        # 流结束后后台执行记忆提取（不阻塞 [DONE] 信号）
+        if final_answer:
+            async def _save_memory():
+                try:
+                    await asyncio.to_thread(
+                        remember_conversation,
+                        session_id=session_id,
+                        question=req.question,
+                        answer=final_answer,
+                        sources=sources,
+                        route=route,
+                    )
+                except Exception as e:
+                    print(f"记忆存储失败: {e}")
+            asyncio.create_task(_save_memory())
 
     return StreamingResponse(
         event_generator(),
@@ -130,23 +104,67 @@ async def list_knowledge(
     return {"summaries": get_knowledge_summaries(session_id, limit)}
 
 
+@api_router.get("/knowledge/stats")
+async def get_knowledge_stats():
+    """获取知识摘要统计信息"""
+    from app.core.database import get_knowledge_summaries_stats
+    return get_knowledge_summaries_stats()
+
+
+@api_router.post("/knowledge/cleanup")
+async def cleanup_knowledge(days: int = Query(30, ge=1, le=365)):
+    """清理指定天数之前的知识摘要"""
+    from app.core.database import cleanup_old_knowledge_summaries
+    deleted = cleanup_old_knowledge_summaries(days)
+    return {"status": "ok", "deleted_count": deleted, "days": days}
+
+
 # ==================== Wiki ====================
 
 @api_router.get("/wiki")
 async def list_wiki_pages(topic: str | None = Query(None)):
-    """获取 Wiki 页面列表"""
+    """获取 Wiki 页面列表（不包含完整内容）"""
     from app.core.database import get_wiki_pages
-    return {"pages": get_wiki_pages(topic)}
+    return {"pages": get_wiki_pages(topic, include_content=False)}
 
 
 @api_router.get("/wiki/{page_id}")
 async def get_wiki_page_detail(page_id: int):
-    """获取单篇 Wiki 页面"""
+    """获取单篇 Wiki 页面（包含完整内容）"""
     from app.core.database import get_wiki_page
     page = get_wiki_page(page_id)
     if not page:
         return {"status": "error", "message": "页面不存在"}
     return page
+
+
+class WikiUpdateRequest(BaseModel):
+    """Wiki 更新请求"""
+    title: str | None = None
+    content: str | None = None
+    topic: str | None = None
+
+
+@api_router.put("/wiki/{page_id}")
+async def update_wiki_page(page_id: int, req: WikiUpdateRequest):
+    """更新 Wiki 页面"""
+    from app.core.database import update_wiki_page, get_wiki_page
+    page = get_wiki_page(page_id)
+    if not page:
+        return {"status": "error", "message": "页面不存在"}
+    update_wiki_page(page_id, title=req.title, content=req.content, topic=req.topic)
+    return {"status": "ok", "message": "更新成功"}
+
+
+@api_router.delete("/wiki/{page_id}")
+async def delete_wiki_page(page_id: int):
+    """删除 Wiki 页面"""
+    from app.core.database import delete_wiki_page, get_wiki_page
+    page = get_wiki_page(page_id)
+    if not page:
+        return {"status": "error", "message": "页面不存在"}
+    delete_wiki_page(page_id)
+    return {"status": "ok", "message": "删除成功"}
 
 
 class WikiDistillRequest(BaseModel):
@@ -158,8 +176,10 @@ class WikiDistillRequest(BaseModel):
 @api_router.post("/wiki/distill")
 async def distill_wiki(req: WikiDistillRequest):
     """从知识摘要 distill 出 Wiki 页面"""
+    import asyncio
     from app.rag.wiki import distill_and_save
-    return distill_and_save(session_ids=req.session_ids, topic=req.topic)
+    # 在线程池中执行，避免 LLM 调用阻塞事件循环
+    return await asyncio.to_thread(distill_and_save, session_ids=req.session_ids, topic=req.topic)
 
 
 # ==================== 语料入库 ====================
@@ -310,16 +330,21 @@ async def batch_delete_ingestion_files(req: BatchDeleteRequest):
     if not req.files:
         return {"status": "ok", "deleted_count": 0}
 
-    # 删除去重记录
-    delete_records_by_files(req.files)
-
-    # 删除向量库中的对应 chunks
+    # 先删除向量库中的对应 chunks（确保向量库删除成功后再删去重记录）
+    vector_delete_ok = False
     try:
         vectorstore = get_vectorstore()
         for source_file in req.files:
             vectorstore.delete(where={"source": source_file})
+        vector_delete_ok = True
     except Exception as e:
         print(f"删除向量库记录失败: {e}")
+
+    # 再删除去重记录
+    if vector_delete_ok:
+        delete_records_by_files(req.files)
+    else:
+        print("警告：向量库删除失败，保留去重记录以避免重复入库")
 
     return {"status": "ok", "deleted_count": len(req.files)}
 
@@ -407,7 +432,7 @@ async def convert_file(req: ConvertRequest):
 
 @api_router.delete("/files/{filepath:path}")
 async def delete_raw_file(filepath: str):
-    """删除指定文件"""
+    """删除指定文件及其关联的入库数据"""
     from pathlib import Path
     from app.core.config import settings
 
@@ -417,7 +442,30 @@ async def delete_raw_file(filepath: str):
     if not file_path.exists():
         return {"status": "error", "message": "文件不存在"}
 
+    filename = file_path.stem  # 不含扩展名的文件名
+
+    # 1. 删除向量库中关联的数据（按 source 匹配）
+    try:
+        from app.rag.vectorstore import get_vectorstore
+        vectorstore = get_vectorstore()
+        vectorstore.delete(where={"source": filename})
+    except Exception as e:
+        print(f"删除向量库记录失败: {e}")
+
+    # 2. 删除去重记录
+    try:
+        from app.kg.dedup import delete_records_by_file
+        delete_records_by_file(filename)
+    except Exception as e:
+        print(f"删除去重记录失败: {e}")
+
+    # 3. 删除原始文件
     file_path.unlink()
+
+    # 4. 如果是 epub 等格式，也删除自动生成的 .md 文件
+    md_path = file_path.with_suffix(".md")
+    if md_path.exists() and md_path != file_path:
+        md_path.unlink()
 
     return {"status": "ok", "deleted": filepath}
 
@@ -434,11 +482,29 @@ async def preview_file(filepath: str):
     if not file_path.exists():
         return {"status": "error", "message": "文件不存在"}
 
+    # 检查是否为二进制文件
+    binary_extensions = {'.pdf', '.epub', '.docx', '.doc', '.xls', '.xlsx', '.ppt', '.pptx'}
+    if file_path.suffix.lower() in binary_extensions:
+        return {
+            "status": "ok",
+            "preview": f"[{file_path.suffix.upper()[1:]} 文件] 此文件类型需要转换为 Markdown 后才能预览内容。",
+            "total_length": file_path.stat().st_size,
+            "is_binary": True,
+        }
+
     try:
         try:
             content = file_path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
-            content = file_path.read_text(encoding="gbk")
+            try:
+                content = file_path.read_text(encoding="gbk")
+            except UnicodeDecodeError:
+                return {
+                    "status": "ok",
+                    "preview": "[无法解码的文本文件] 文件编码不是 UTF-8 或 GBK。",
+                    "total_length": file_path.stat().st_size,
+                    "is_binary": True,
+                }
 
         preview = content[:500]
         if len(content) > 500:
@@ -505,29 +571,56 @@ async def extract_knowledge(req: ExtractRequest):
 @api_router.post("/extract/batch")
 async def extract_batch():
     """批量抽取：对 raw/ 目录下所有语料做知识抽取，结果进入审核队列"""
-    from app.kg.corpus_import import load_all_documents
-    from app.kg.text_splitter import split_document
-    from app.kg.extractor import extract_from_chunks
-    from app.kg.review import add_batch_to_review_queue
+    import asyncio
+    from app.core.progress import tracker
 
-    documents = load_all_documents()
-    if not documents:
-        return {"status": "error", "message": "raw/ 目录下没有找到文档"}
+    task_id = str(uuid.uuid4())[:8]
+    tracker.create_task(task_id)
 
-    all_chunks = []
-    for doc in documents:
-        chunks = split_document(doc.content, doc.source, doc.category)
-        all_chunks.extend(chunks)
+    async def run_extract():
+        from app.kg.corpus_import import load_all_documents
+        from app.kg.text_splitter import split_document
+        from app.kg.extractor import extract_from_chunks
+        from app.kg.review import add_batch_to_review_queue
 
-    results = extract_from_chunks(all_chunks)
-    review_ids = add_batch_to_review_queue(results)
+        try:
+            tracker.update(task_id, stage="加载文档", message="正在加载 raw/ 目录下的文档...")
+            documents = load_all_documents()
+            if not documents:
+                tracker.update(task_id, done=True, error="raw/ 目录下没有找到文档")
+                return
 
-    return {
-        "status": "ok",
-        "total_chunks": len(all_chunks),
-        "extraction_results": len(results),
-        "review_ids": review_ids,
-    }
+            tracker.update(task_id, stage="切分文本", message=f"已加载 {len(documents)} 个文档，正在切分...")
+            all_chunks = []
+            for i, doc in enumerate(documents):
+                chunks = split_document(doc.content, doc.source, doc.category)
+                all_chunks.extend(chunks)
+                tracker.update(task_id, current=i + 1, total=len(documents),
+                             message=f"切分文档 {i + 1}/{len(documents)}: {doc.source}")
+
+            tracker.update(task_id, stage="知识抽取", total=len(all_chunks), current=0,
+                         message=f"共 {len(all_chunks)} 个文本块，开始抽取...")
+
+            # 分批抽取，更新进度
+            batch_size = 10
+            all_results = []
+            for i in range(0, len(all_chunks), batch_size):
+                batch = all_chunks[i:i + batch_size]
+                batch_results = extract_from_chunks(batch)
+                all_results.extend(batch_results)
+                tracker.update(task_id, current=min(i + batch_size, len(all_chunks)),
+                             message=f"已抽取 {len(all_results)} 个结果")
+
+            tracker.update(task_id, stage="保存结果", message="正在将抽取结果加入审核队列...")
+            review_ids = add_batch_to_review_queue(all_results)
+
+            tracker.update(task_id, done=True,
+                         message=f"完成！共抽取 {len(all_results)} 个结果，已加入审核队列")
+        except Exception as e:
+            tracker.update(task_id, done=True, error=str(e))
+
+    asyncio.create_task(run_extract())
+    return {"status": "ok", "task_id": task_id}
 
 
 # ==================== 审核 ====================
@@ -591,8 +684,11 @@ class CrawlRequest(BaseModel):
 @api_router.post("/crawl")
 async def crawl_papers(req: CrawlRequest):
     """启动论文爬取管线（搜索 → 下载 → 解析 → 入库）"""
+    import asyncio
     from app.crawler.pipeline import crawl_and_ingest
-    result = crawl_and_ingest(
+    # 在线程池中执行，避免同步阻塞事件循环
+    result = await asyncio.to_thread(
+        crawl_and_ingest,
         categories=req.categories,
         max_per_keyword=req.max_per_keyword,
         download_pdfs=req.download_pdfs,
@@ -684,21 +780,19 @@ async def search_graph(
     entity_type: str | None = Query(None, description="实体类型过滤: person/event/force"),
 ):
     """搜索图谱中的实体"""
-    from app.models.crud import get_all_entities, get_entity_relations
     from app.core.database import get_connection
 
-    with get_connection() as conn:
-        conditions = ["name LIKE ?"]
-        params = [f"%{q}%"]
+    VALID_TYPES = {"person", "event", "force"}
+    if entity_type and entity_type not in VALID_TYPES:
+        return {"status": "error", "message": f"无效的实体类型: {entity_type}，可选: {VALID_TYPES}"}
 
+    with get_connection() as conn:
         if entity_type:
-            table = f"{entity_type}s" if not entity_type.endswith("s") else entity_type
+            tables = [f"{entity_type}s"]
         else:
-            table = None
+            tables = ["persons", "events", "forces"]
 
         results = []
-        tables = [table] if table else ["persons", "events", "forces"]
-
         for t in tables:
             singular = t.rstrip("s")
             rows = conn.execute(
@@ -714,30 +808,43 @@ async def search_graph(
 
 @api_router.get("/graph/entity/{entity_type}/{entity_id}")
 async def get_entity_detail(entity_type: str, entity_id: int):
-    """获取实体详情及其关系"""
-    from app.models.crud import get_entity_relations
+    """获取实体详情及其关系（关联实体名称）"""
+    from app.core.database import get_connection
 
-    with get_connection_context() as conn:
-        table = f"{entity_type}s" if not entity_type.endswith("s") else entity_type
+    VALID_TYPES = {"person", "event", "force"}
+    if entity_type not in VALID_TYPES:
+        return {"status": "error", "message": f"无效的实体类型: {entity_type}，可选: {VALID_TYPES}"}
+
+    table = f"{entity_type}s"
+    with get_connection() as conn:
         row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", [entity_id]).fetchone()
+        if not row:
+            return {"status": "error", "message": "实体不存在"}
+        entity = dict(row)
 
-    if not row:
-        return {"status": "error", "message": "实体不存在"}
+        # 查询关系并关联实体名称
+        rows = conn.execute(
+            "SELECT * FROM relations WHERE (source_type=? AND source_id=?) OR (target_type=? AND target_id=?)",
+            (entity_type, entity_id, entity_type, entity_id)
+        ).fetchall()
 
-    relations = get_entity_relations(entity_type, entity_id)
+        relations = []
+        for r in rows:
+            r_dict = dict(r)
+            # 查询源实体名称
+            src_table = f"{r_dict['source_type']}s"
+            src_row = conn.execute(f"SELECT name FROM {src_table} WHERE id = ?", [r_dict['source_id']]).fetchone()
+            r_dict['source_name'] = src_row['name'] if src_row else str(r_dict['source_id'])
+
+            # 查询目标实体名称
+            tgt_table = f"{r_dict['target_type']}s"
+            tgt_row = conn.execute(f"SELECT name FROM {tgt_table} WHERE id = ?", [r_dict['target_id']]).fetchone()
+            r_dict['target_name'] = tgt_row['name'] if tgt_row else str(r_dict['target_id'])
+
+            relations.append(r_dict)
 
     return {
-        "entity": dict(row),
+        "entity": entity,
         "entity_type": entity_type,
         "relations": relations,
     }
-
-
-# 辅助：获取数据库连接的上下文
-from contextlib import contextmanager
-
-@contextmanager
-def get_connection_context():
-    from app.core.database import get_connection
-    with get_connection() as conn:
-        yield conn

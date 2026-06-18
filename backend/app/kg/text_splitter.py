@@ -23,7 +23,8 @@ def get_llm():
 class Chunk:
     """切分后的文本块"""
     content: str
-    source: str          # 来源（三国志/演义/论文名）
+    source: str          # 实际文件路径（相对于 raw/）
+    source_name: str     # 语义标识（如 "三国志", "三国演义"）
     category: str        # 分类（正史/演义/论文）
     chapter: str         # 章节标识（如"第一回"、"武帝纪"）
     chunk_index: int     # 在该章节内的序号
@@ -129,17 +130,19 @@ def split_by_paragraphs(text: str, chunk_size: int | None = None,
     return chunks
 
 
-def split_document(content: str, source: str, category: str) -> list[Chunk]:
+def split_document(content: str, source: str, category: str,
+                   source_name: str = "") -> list[Chunk]:
     """完整切分流程：章节粗切 → 段落细切
 
     根据配置自动选择传统分块或 Agentic 语义分块
     """
     if settings.agentic_split:
-        return split_document_agentic(content, source, category)
-    return split_document_basic(content, source, category)
+        return split_document_agentic(content, source, category, source_name)
+    return split_document_basic(content, source, category, source_name)
 
 
-def split_document_basic(content: str, source: str, category: str) -> list[Chunk]:
+def split_document_basic(content: str, source: str, category: str,
+                         source_name: str = "") -> list[Chunk]:
     """传统分块流程：章节粗切 → 段落细切"""
 
     chapters = split_by_chapters(content)
@@ -153,6 +156,7 @@ def split_document_basic(content: str, source: str, category: str) -> list[Chunk
             all_chunks.append(Chunk(
                 content=para,
                 source=source,
+                source_name=source_name,
                 category=category,
                 chapter=chapter_name,
                 chunk_index=i,
@@ -289,10 +293,13 @@ def llm_validate_and_merge(chunks: list[str]) -> list[str]:
     llm = get_llm()
 
     # 检查前几个块的边界质量
-    check_count = min(5, len(chunks))
+    check_count = min(5, len(chunks) - 1)  # 边界数 = 块数 - 1
+    if check_count <= 0:
+        return chunks
+
     samples = []
     for i in range(check_count):
-        # 取每个块的最后 50 字和下一个块的前 50 字
+        # 取每个块的最后 80 字和下一个块的前 80 字
         end = chunks[i][-80:] if len(chunks[i]) > 80 else chunks[i]
         start = chunks[i + 1][:80] if i + 1 < len(chunks) else ""
         samples.append(f"块{i}结尾: ...{end}\n块{i+1}开头: {start}...")
@@ -320,9 +327,9 @@ def llm_validate_and_merge(chunks: list[str]) -> list[str]:
 
         validations = json.loads(text)
 
-        # 根据验证结果合并
+        # 根据验证结果合并（从后往前合并，避免索引偏移问题）
         merged = list(chunks)
-        for i in range(min(len(validations), check_count)):
+        for i in range(min(len(validations), check_count) - 1, -1, -1):
             if not validations[i] and i + 1 < len(merged):
                 # 合并块 i 和块 i+1
                 merged[i] = merged[i] + "\n" + merged[i + 1]
@@ -335,7 +342,8 @@ def llm_validate_and_merge(chunks: list[str]) -> list[str]:
         return chunks
 
 
-def split_document_agentic(content: str, source: str, category: str) -> list[Chunk]:
+def split_document_agentic(content: str, source: str, category: str,
+                           source_name: str = "") -> list[Chunk]:
     """Agentic 语义分块流程：章节粗切 → LLM 分析 → 自适应分块 → 上下文增强"""
 
     from langchain_core.messages import SystemMessage, HumanMessage
@@ -369,6 +377,7 @@ def split_document_agentic(content: str, source: str, category: str) -> list[Chu
             all_chunks.append(Chunk(
                 content=para,
                 source=source,
+                source_name=source_name,
                 category=category,
                 chapter=chapter_name,
                 chunk_index=i,

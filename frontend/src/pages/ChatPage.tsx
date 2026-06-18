@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Input, Button, Tag, Spin, Divider } from 'antd';
-import { SendOutlined, LinkOutlined } from '@ant-design/icons';
+import { SendOutlined, LinkOutlined, PlusOutlined } from '@ant-design/icons';
 import { useChat } from '../contexts/ChatContext';
 
 const QUICK_QUESTIONS = [
@@ -11,7 +11,7 @@ const QUICK_QUESTIONS = [
 ];
 
 export default function ChatPage() {
-  const { messages, loading, streamStatus, handleSend } = useChat();
+  const { messages, loading, streamStatus, handleSend, clearMessages } = useChat();
   const [input, setInput] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -37,6 +37,15 @@ export default function ChatPage() {
           <Tag style={{ fontSize: 11 }}>{messages.filter(m => m.role === 'user').length} 条对话</Tag>
         )}
         <div className="page-header-spacer" />
+        {messages.length > 0 && (
+          <Button
+            icon={<PlusOutlined />}
+            onClick={clearMessages}
+            size="small"
+          >
+            新对话
+          </Button>
+        )}
       </div>
 
       {/* 消息区 */}

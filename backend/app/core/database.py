@@ -107,6 +107,18 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_wiki_topic ON wiki_pages(topic);
 
+            -- 审核队列表
+            CREATE TABLE IF NOT EXISTS review_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_text TEXT NOT NULL,
+                entities TEXT NOT NULL DEFAULT '[]',     -- JSON array of extracted entities
+                relations TEXT NOT NULL DEFAULT '[]',    -- JSON array of extracted relations
+                status TEXT NOT NULL DEFAULT 'pending',   -- pending / approved / rejected
+                reason TEXT DEFAULT '',                   -- 拒绝理由
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_review_status ON review_items(status);
+
             -- 索引
             CREATE INDEX IF NOT EXISTS idx_persons_name ON persons(name);
             CREATE INDEX IF NOT EXISTS idx_events_name ON events(name);
@@ -219,22 +231,105 @@ def get_knowledge_summaries(session_id: str | None = None, limit: int = 100) -> 
     ]
 
 
+def cleanup_old_knowledge_summaries(days: int = 30) -> int:
+    """清理指定天数之前的知识摘要
+
+    Args:
+        days: 保留最近 N 天的数据
+
+    Returns:
+        删除的记录数
+    """
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM knowledge_summaries WHERE created_at < datetime('now', ?)",
+            (f'-{days} days',)
+        )
+        return cursor.rowcount
+
+
+def get_knowledge_summaries_stats() -> dict:
+    """获取知识摘要统计信息"""
+    with get_connection() as conn:
+        total = conn.execute("SELECT COUNT(*) as cnt FROM knowledge_summaries").fetchone()["cnt"]
+        oldest = conn.execute("SELECT MIN(created_at) as oldest FROM knowledge_summaries").fetchone()["oldest"]
+        newest = conn.execute("SELECT MAX(created_at) as newest FROM knowledge_summaries").fetchone()["newest"]
+    return {
+        "total": total,
+        "oldest": oldest,
+        "newest": newest,
+    }
+
+
 # ==================== Wiki 页面 ====================
 
 
 def save_wiki_page(title: str, content: str, topic: str = "",
-                   source_sessions: list[str] | None = None):
-    """保存一篇 Wiki 页面"""
+                   source_sessions: list[str] | None = None) -> int:
+    """保存一篇 Wiki 页面（按 title 去重，存在则更新）"""
     import json
+    sessions_json = json.dumps(source_sessions or [])
     with get_connection() as conn:
+        # 检查是否已存在同标题页面
+        existing = conn.execute(
+            "SELECT id FROM wiki_pages WHERE title = ?", (title,)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE wiki_pages SET content = ?, topic = ?, source_sessions = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (content, topic, sessions_json, existing["id"]),
+            )
+            return existing["id"]
+        else:
+            cursor = conn.execute(
+                "INSERT INTO wiki_pages (title, content, topic, source_sessions) VALUES (?, ?, ?, ?)",
+                (title, content, topic, sessions_json),
+            )
+            return cursor.lastrowid
+
+
+def update_wiki_page(page_id: int, title: str | None = None,
+                     content: str | None = None, topic: str | None = None) -> bool:
+    """更新 Wiki 页面"""
+    with get_connection() as conn:
+        updates = []
+        params = []
+        if title is not None:
+            updates.append("title = ?")
+            params.append(title)
+        if content is not None:
+            updates.append("content = ?")
+            params.append(content)
+        if topic is not None:
+            updates.append("topic = ?")
+            params.append(topic)
+        if not updates:
+            return False
+        updates.append("updated_at = CURRENT_TIMESTAMP")
+        params.append(page_id)
         conn.execute(
-            "INSERT INTO wiki_pages (title, content, topic, source_sessions) VALUES (?, ?, ?, ?)",
-            (title, content, topic, json.dumps(source_sessions or [])),
+            f"UPDATE wiki_pages SET {', '.join(updates)} WHERE id = ?",
+            params,
         )
+        return True
 
 
-def get_wiki_pages(topic: str | None = None, limit: int = 50) -> list[dict]:
-    """获取 Wiki 页面列表"""
+def delete_wiki_page(page_id: int) -> bool:
+    """删除 Wiki 页面"""
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM wiki_pages WHERE id = ?", (page_id,))
+        return cursor.rowcount > 0
+
+
+def get_wiki_pages(topic: str | None = None, limit: int = 50,
+                   include_content: bool = False) -> list[dict]:
+    """获取 Wiki 页面列表
+
+    Args:
+        topic: 按主题过滤
+        limit: 返回数量限制
+        include_content: 是否包含完整内容（列表接口默认不包含）
+    """
     import json
     with get_connection() as conn:
         if topic:
@@ -247,18 +342,23 @@ def get_wiki_pages(topic: str | None = None, limit: int = 50) -> list[dict]:
                 "SELECT * FROM wiki_pages ORDER BY updated_at DESC LIMIT ?",
                 (limit,),
             ).fetchall()
-    return [
-        {
+    result = []
+    for r in rows:
+        item = {
             "id": r["id"],
             "title": r["title"],
-            "content": r["content"],
             "topic": r["topic"],
             "source_sessions": json.loads(r["source_sessions"]),
             "created_at": r["created_at"],
             "updated_at": r["updated_at"],
         }
-        for r in rows
-    ]
+        if include_content:
+            item["content"] = r["content"]
+        else:
+            # 只返回前 150 个字符用于预览
+            item["content_preview"] = r["content"][:150] + "..." if len(r["content"]) > 150 else r["content"]
+        result.append(item)
+    return result
 
 
 def get_wiki_page(page_id: int) -> dict | None:
@@ -278,4 +378,84 @@ def get_wiki_page(page_id: int) -> dict | None:
         "source_sessions": json.loads(r["source_sessions"]),
         "created_at": r["created_at"],
         "updated_at": r["updated_at"],
+    }
+
+
+# ==================== 审核队列 ====================
+
+
+def save_review_item(source_text: str, entities: list[dict], relations: list[dict]) -> int:
+    """保存一条审核记录，返回 ID"""
+    import json
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO review_items (source_text, entities, relations) VALUES (?, ?, ?)",
+            (source_text, json.dumps(entities, ensure_ascii=False), json.dumps(relations, ensure_ascii=False)),
+        )
+        return cursor.lastrowid
+
+
+def get_review_items_by_status(status: str) -> list[dict]:
+    """按状态获取审核记录"""
+    import json
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM review_items WHERE status = ? ORDER BY created_at DESC",
+            (status,),
+        ).fetchall()
+    return [
+        {
+            "id": r["id"],
+            "source_text": r["source_text"],
+            "entities": json.loads(r["entities"]),
+            "relations": json.loads(r["relations"]),
+            "status": r["status"],
+            "reason": r["reason"],
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
+
+
+def get_review_item(review_id: int) -> dict | None:
+    """获取单条审核记录"""
+    import json
+    with get_connection() as conn:
+        r = conn.execute(
+            "SELECT * FROM review_items WHERE id = ?", (review_id,)
+        ).fetchone()
+    if not r:
+        return None
+    return {
+        "id": r["id"],
+        "source_text": r["source_text"],
+        "entities": json.loads(r["entities"]),
+        "relations": json.loads(r["relations"]),
+        "status": r["status"],
+        "reason": r["reason"],
+        "created_at": r["created_at"],
+    }
+
+
+def update_review_status(review_id: int, status: str, reason: str = ""):
+    """更新审核记录状态"""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE review_items SET status = ?, reason = ? WHERE id = ?",
+            (status, reason, review_id),
+        )
+
+
+def get_review_stats_from_db() -> dict:
+    """获取审核统计"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) as cnt FROM review_items GROUP BY status"
+        ).fetchall()
+    stats = {r["status"]: r["cnt"] for r in rows}
+    return {
+        "total": sum(stats.values()),
+        "pending": stats.get("pending", 0),
+        "approved": stats.get("approved", 0),
+        "rejected": stats.get("rejected", 0),
     }

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+import threading
 from typing import TypedDict, Annotated
 from operator import add as add_messages
 
@@ -12,6 +12,7 @@ from langgraph.graph import StateGraph, END
 
 from app.core.config import settings
 from app.prompts import load_prompt
+from app.utils.parsers import parse_llm_json
 
 
 # ==================== 状态定义 ====================
@@ -31,26 +32,110 @@ class RAGState(TypedDict):
     generation: str                     # 生成的回答
     reflection_passed: bool             # 自我反思是否通过
     retry_count: int                    # 重试次数
+    resolved_question: str              # 指代消解后的问题
 
     # 输出
     final_answer: str
     sources: list[str]
 
 
-# ==================== LLM 实例 ====================
+# ==================== LLM 实例（单例缓存） ====================
+
+_llm_cache: dict[float, ChatOpenAI] = {}
+_llm_lock = threading.Lock()
 
 
 def get_llm(temperature: float = 0.1) -> ChatOpenAI:
-    return ChatOpenAI(
-        model=settings.llm_model,
-        api_key=settings.llm_api_key,
-        base_url=settings.llm_base_url,
-        temperature=temperature,
-        max_tokens=4096,
-    )
+    """获取 LLM 实例（按 temperature 缓存单例）"""
+    if temperature not in _llm_cache:
+        with _llm_lock:
+            if temperature not in _llm_cache:
+                _llm_cache[temperature] = ChatOpenAI(
+                    model=settings.llm_model,
+                    api_key=settings.llm_api_key,
+                    base_url=settings.llm_base_url,
+                    temperature=temperature,
+                    max_tokens=4096,
+                )
+    return _llm_cache[temperature]
 
 
 # ==================== 节点函数 ====================
+
+
+def resolve_coreference(state: RAGState) -> dict:
+    """指代消解：根据对话历史将问题中的代词替换为具体实体"""
+    session_id = state.get("session_id", "")
+    question = state["question"]
+
+    # 如果没有 session_id，跳过指代消解
+    if not session_id:
+        return {"resolved_question": question}
+
+    # 获取最近的对话历史
+    try:
+        from app.core.database import get_conversation_history
+        history = get_conversation_history(session_id, limit=6)  # 最近 3 轮对话
+    except Exception:
+        return {"resolved_question": question}
+
+    # 如果没有历史对话，跳过指代消解
+    if not history or len(history) < 2:
+        return {"resolved_question": question}
+
+    # 构建对话历史文本
+    history_text = ""
+    for msg in history[-6:]:  # 最近 3 轮
+        role = "用户" if msg["role"] == "user" else "助手"
+        content = msg["content"][:200]  # 截取前 200 字
+        history_text += f"{role}: {content}\n"
+
+    # 检查问题中是否包含代词
+    pronouns = ["他", "她", "它", "他们", "她们", "它们", "这个", "那个", "这些", "那些",
+                "此人", "此人", "其", "其中", "该", "该人", "该事"]
+    has_pronoun = any(pronoun in question for pronoun in pronouns)
+
+    # 如果没有代词，跳过指代消解
+    if not has_pronoun:
+        return {"resolved_question": question}
+
+    llm = get_llm()
+
+    prompt = f"""根据对话历史，将用户问题中的代词（他、她、它、他们、这个、那个等）替换为具体的人名、事件或事物名称。
+
+## 对话历史
+{history_text}
+
+## 用户问题
+{question}
+
+## 要求
+1. 只替换明确的代词，不要改变问题的其他部分
+2. 如果无法确定指代对象，保留原词
+3. 只输出替换后的问题，不要添加其他内容
+
+## 示例
+对话历史：
+用户: 诸葛亮的军事思想是什么？
+助手: 诸葛亮的军事思想强调...
+
+用户: 他有哪些著名的战役？
+输出: 诸葛亮有哪些著名的战役？"""
+
+    try:
+        response = llm.invoke([
+            SystemMessage(content=prompt),
+            HumanMessage(content="请进行指代消解"),
+        ])
+
+        resolved = response.content.strip()
+        # 验证输出合理性（长度不能差异太大）
+        if resolved and 0.5 * len(question) <= len(resolved) <= 2 * len(question):
+            return {"resolved_question": resolved}
+    except Exception as e:
+        print(f"指代消解失败: {e}")
+
+    return {"resolved_question": question}
 
 
 def query_router(state: RAGState) -> dict:
@@ -72,9 +157,12 @@ def query_router(state: RAGState) -> dict:
 - "赤壁之战的经过" → simple
 - "东汉末年的政治格局是怎样的？" → complex"""
 
+    # 使用指代消解后的问题
+    question = state.get("resolved_question") or state["question"]
+
     response = llm.invoke([
         SystemMessage(content=prompt),
-        HumanMessage(content=state["question"]),
+        HumanMessage(content=question),
     ])
 
     route = response.content.strip().lower()
@@ -86,8 +174,11 @@ def query_router(state: RAGState) -> dict:
 
 def query_decomposition(state: RAGState) -> dict:
     """查询分解：将复杂问题拆解为子问题"""
+    # 使用指代消解后的问题
+    question = state.get("resolved_question") or state["question"]
+
     if state["route"] == "simple":
-        return {"sub_questions": [state["question"]]}
+        return {"sub_questions": [question]}
 
     llm = get_llm()
 
@@ -103,35 +194,37 @@ def query_decomposition(state: RAGState) -> dict:
 问题：汉献帝如何联合世家诛灭董卓？
 {"sub_questions": ["汉献帝时期的朝廷权力结构是怎样的？", "王允在诛董卓事件中起了什么作用？", "吕布为什么背叛董卓？", "世家大族在东汉末年的政治影响力如何？"]}"""
 
+    # 使用指代消解后的问题
+    question = state.get("resolved_question") or state["question"]
+
     response = llm.invoke([
         SystemMessage(content=prompt),
-        HumanMessage(content=state["question"]),
+        HumanMessage(content=question),
     ])
 
-    try:
-        text = response.content.strip()
-        if "```json" in text:
-            text = text[text.index("```json") + 7:text.index("```")].strip()
-        elif "```" in text:
-            text = text[text.index("```") + 3:text.index("```")].strip()
-        data = json.loads(text)
-        sub_questions = data.get("sub_questions", [state["question"]])
-    except (json.JSONDecodeError, ValueError):
-        sub_questions = [state["question"]]
+    data = parse_llm_json(response.content)
+    sub_questions = data.get("sub_questions", [question]) if data else [question]
 
     return {"sub_questions": sub_questions}
 
 
 def retrieve(state: RAGState) -> dict:
-    """检索节点：从 Chroma 检索相关文档"""
-    from app.rag.vectorstore import search_vectorstore
+    """检索节点：从 Chroma 检索相关文档 + 从 SQLite 检索知识图谱"""
+    from app.rag.vectorstore import search_vectorstore, search_memory
 
     all_docs = []
     seen_contents = set()
 
-    for question in state["sub_questions"]:
+    # 使用指代消解后的问题，如果 sub_questions 为空（简单问题路由跳过了 decompose）
+    resolved_question = state.get("resolved_question") or state["question"]
+    questions = state["sub_questions"] or [resolved_question]
+
+    for question in questions:
+        # 检索主知识库
         docs = search_vectorstore(question, k=10)
-        for doc in docs:
+        # 检索对话记忆（qa_memory collection）
+        memory_docs = search_memory(question, k=5)
+        for doc in docs + memory_docs:
             content_hash = hash(doc.page_content)
             if content_hash not in seen_contents:
                 seen_contents.add(content_hash)
@@ -142,7 +235,78 @@ def retrieve(state: RAGState) -> dict:
                     "category": doc.metadata.get("category", ""),
                 })
 
+    # 检索知识图谱（SQLite）
+    kg_docs = _search_knowledge_graph(questions)
+    for doc in kg_docs:
+        content_hash = hash(doc["content"])
+        if content_hash not in seen_contents:
+            seen_contents.add(content_hash)
+            all_docs.append(doc)
+
     return {"retrieved_docs": all_docs}
+
+
+def _search_knowledge_graph(questions: list[str]) -> list[dict]:
+    """从 SQLite 知识图谱中检索相关实体和关系"""
+    from app.core.database import get_connection
+
+    results = []
+    try:
+        with get_connection() as conn:
+            for question in questions:
+                # 搜索匹配的实体
+                for table, type_name in [("persons", "人物"), ("events", "事件"), ("forces", "势力")]:
+                    rows = conn.execute(
+                        f"SELECT * FROM {table} WHERE name LIKE ? OR description LIKE ? LIMIT 5",
+                        [f"%{question[:10]}%", f"%{question[:20]}%"],
+                    ).fetchall()
+                    for row in rows:
+                        row_dict = dict(row)
+                        content = f"【{type_name}】{row_dict['name']}"
+                        if row_dict.get('description'):
+                            content += f"：{row_dict['description']}"
+                        if row_dict.get('courtesy_name'):
+                            content += f"（字：{row_dict['courtesy_name']}）"
+                        if row_dict.get('year'):
+                            content += f"（时间：{row_dict['year']}）"
+                        results.append({
+                            "content": content,
+                            "source": f"知识图谱-{type_name}",
+                            "chapter": "",
+                            "category": "knowledge_graph",
+                        })
+
+                # 搜索匹配的关系
+                rows = conn.execute(
+                    """SELECT r.*, s.name as src_name, t.name as tgt_name
+                       FROM relations r
+                       LEFT JOIN persons s ON r.source_type='person' AND r.source_id=s.id
+                       LEFT JOIN events s ON r.source_type='event' AND r.source_id=s.id
+                       LEFT JOIN forces s ON r.source_type='force' AND r.source_id=s.id
+                       LEFT JOIN persons t ON r.target_type='person' AND r.target_id=t.id
+                       LEFT JOIN events t ON r.target_type='event' AND r.target_id=t.id
+                       LEFT JOIN forces t ON r.target_type='force' AND r.target_id=t.id
+                       WHERE r.description LIKE ?
+                       LIMIT 10""",
+                    [f"%{question[:20]}%"],
+                ).fetchall()
+                for row in rows:
+                    row_dict = dict(row)
+                    src_name = row_dict.get('src_name', row_dict['source_id'])
+                    tgt_name = row_dict.get('tgt_name', row_dict['target_id'])
+                    content = f"【关系】{src_name} --[{row_dict['relation_type']}]--> {tgt_name}"
+                    if row_dict.get('description'):
+                        content += f"：{row_dict['description']}"
+                    results.append({
+                        "content": content,
+                        "source": "知识图谱-关系",
+                        "chapter": "",
+                        "category": "knowledge_graph",
+                    })
+    except Exception as e:
+        print(f"知识图谱检索失败: {e}")
+
+    return results[:10]  # 限制返回数量
 
 
 def relevance_grading(state: RAGState) -> dict:
@@ -250,8 +414,11 @@ def generate(state: RAGState) -> dict:
 ## 用户问题
 {{question}}"""
 
+    # 使用指代消解后的问题
+    question = state.get("resolved_question") or state["question"]
+
     response = llm.invoke([
-        SystemMessage(content=prompt.format(context=context, question=state["question"])),
+        SystemMessage(content=prompt.format(context=context, question=question)),
         HumanMessage(content="请回答"),
     ])
 
@@ -291,16 +458,8 @@ def self_reflection(state: RAGState) -> dict:
 {state['generation']}"""),
     ])
 
-    try:
-        text = response.content.strip()
-        if "```json" in text:
-            text = text[text.index("```json") + 7:text.index("```")].strip()
-        elif "```" in text:
-            text = text[text.index("```") + 3:text.index("```")].strip()
-        data = json.loads(text)
-        passed = data.get("passed", True)
-    except (json.JSONDecodeError, ValueError):
-        passed = True  # 解析失败默认通过
+    data = parse_llm_json(response.content)
+    passed = data.get("passed", True) if data else True  # 解析失败默认通过
 
     return {"reflection_passed": passed}
 
@@ -343,6 +502,7 @@ def build_rag_graph() -> StateGraph:
     workflow = StateGraph(RAGState)
 
     # 添加节点
+    workflow.add_node("resolve", resolve_coreference)  # 指代消解
     workflow.add_node("router", query_router)
     workflow.add_node("decompose", query_decomposition)
     workflow.add_node("retrieve", retrieve)
@@ -353,9 +513,10 @@ def build_rag_graph() -> StateGraph:
     workflow.add_node("increment_retry", increment_retry)
 
     # 设置入口
-    workflow.set_entry_point("router")
+    workflow.set_entry_point("resolve")
 
     # 添加边
+    workflow.add_edge("resolve", "router")  # 指代消解后进入路由
     workflow.add_conditional_edges(
         "router",
         should_decompose,
@@ -378,15 +539,18 @@ def build_rag_graph() -> StateGraph:
 
 # ==================== 入口函数 ====================
 
-# 全局图实例
+# 全局图实例（带并发保护）
 _rag_graph = None
+_rag_graph_lock = threading.Lock()
 
 
 def get_rag_graph():
-    """获取 RAG 图实例（单例）"""
+    """获取 RAG 图实例（单例，线程安全）"""
     global _rag_graph
     if _rag_graph is None:
-        _rag_graph = build_rag_graph()
+        with _rag_graph_lock:
+            if _rag_graph is None:
+                _rag_graph = build_rag_graph()
     return _rag_graph
 
 
@@ -416,7 +580,16 @@ def run_rag(question: str, session_id: str = "") -> dict:
         "sources": [],
     }
 
-    result = graph.invoke(initial_state)
+    try:
+        result = graph.invoke(initial_state)
+    except Exception as e:
+        print(f"RAG 管线异常: {e}")
+        return {
+            "answer": f"抱歉，处理您的问题时出现了错误：{e}",
+            "sources": [],
+            "route": "error",
+            "sub_questions": [],
+        }
 
     return {
         "answer": result["final_answer"],
@@ -445,9 +618,16 @@ async def run_rag_stream(question: str, session_id: str = ""):
     }
 
     # 使用 stream 模式
-    for event in graph.stream(initial_state, stream_mode="updates"):
-        for node_name, updates in event.items():
-            yield {
-                "node": node_name,
-                "updates": {k: v for k, v in updates.items() if k != "retrieved_docs"},
-            }
+    try:
+        for event in graph.stream(initial_state, stream_mode="updates"):
+            for node_name, updates in event.items():
+                yield {
+                    "node": node_name,
+                    "updates": {k: v for k, v in updates.items() if k != "retrieved_docs"},
+                }
+    except Exception as e:
+        print(f"RAG 流式管线异常: {e}")
+        yield {
+            "node": "error",
+            "updates": {"final_answer": f"抱歉，处理您的问题时出现了错误：{e}", "sources": []},
+        }

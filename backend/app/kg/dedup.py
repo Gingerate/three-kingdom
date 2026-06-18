@@ -15,7 +15,8 @@ def init_dedup_table():
             CREATE TABLE IF NOT EXISTS ingestion_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chunk_hash TEXT NOT NULL UNIQUE,      -- SHA256 哈希
-                source_file TEXT NOT NULL,             -- 源文件路径
+                source_file TEXT NOT NULL,             -- 源文件路径（相对于 raw/）
+                source_name TEXT DEFAULT '',           -- 语义标识（如 "三国志"）
                 chunk_index INTEGER NOT NULL,          -- chunk 在文件中的索引
                 chunk_content TEXT NOT NULL,           -- chunk 内容（用于预览）
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -23,6 +24,13 @@ def init_dedup_table():
             CREATE INDEX IF NOT EXISTS idx_chunk_hash ON ingestion_records(chunk_hash);
             CREATE INDEX IF NOT EXISTS idx_source_file ON ingestion_records(source_file);
         """)
+
+        # 迁移：添加 source_name 字段（如果不存在）
+        try:
+            conn.execute("SELECT source_name FROM ingestion_records LIMIT 1")
+        except Exception:
+            conn.execute("ALTER TABLE ingestion_records ADD COLUMN source_name TEXT DEFAULT ''")
+            print("[迁移] 已添加 source_name 字段")
 
 
 def calculate_chunk_hash(content: str) -> str:
@@ -57,13 +65,14 @@ def get_all_existing_hashes() -> set[str]:
         return {row['chunk_hash'] for row in rows}
 
 
-def add_record(chunk_hash: str, source_file: str, chunk_index: int, chunk_content: str):
+def add_record(chunk_hash: str, source_file: str, chunk_index: int, chunk_content: str,
+               source_name: str = ""):
     """添加一条入库记录"""
     with get_connection() as conn:
         conn.execute(
-            "INSERT OR IGNORE INTO ingestion_records (chunk_hash, source_file, chunk_index, chunk_content) "
-            "VALUES (?, ?, ?, ?)",
-            (chunk_hash, source_file, chunk_index, chunk_content)
+            "INSERT OR IGNORE INTO ingestion_records (chunk_hash, source_file, source_name, chunk_index, chunk_content) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (chunk_hash, source_file, source_name, chunk_index, chunk_content)
         )
 
 
@@ -71,8 +80,8 @@ def add_records_batch(records: list[dict]):
     """批量添加入库记录"""
     with get_connection() as conn:
         conn.executemany(
-            "INSERT OR IGNORE INTO ingestion_records (chunk_hash, source_file, chunk_index, chunk_content) "
-            "VALUES (:chunk_hash, :source_file, :chunk_index, :chunk_content)",
+            "INSERT OR IGNORE INTO ingestion_records (chunk_hash, source_file, source_name, chunk_index, chunk_content) "
+            "VALUES (:chunk_hash, :source_file, :source_name, :chunk_index, :chunk_content)",
             records
         )
 
@@ -102,7 +111,7 @@ def get_all_files() -> list[dict]:
     """获取所有已入库文件的列表和 chunk 数量"""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT source_file, COUNT(*) as chunk_count, "
+            "SELECT source_file, source_name, COUNT(*) as chunk_count, "
             "MIN(created_at) as first_ingested, MAX(created_at) as last_ingested "
             "FROM ingestion_records GROUP BY source_file ORDER BY last_ingested DESC"
         ).fetchall()

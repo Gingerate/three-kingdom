@@ -255,17 +255,29 @@ def extract_from_chunks(chunks: list, batch_size: int = 5) -> list[ExtractionRes
             grouped[key] = []
         grouped[key].append(chunk)
 
-    total_groups = len(grouped)
-    for i, (key, group_chunks) in enumerate(grouped.items(), 1):
-        # 合并同组 chunk 的文本
-        combined_text = "\n\n".join(c.content for c in group_chunks)
-        source = group_chunks[0].source if group_chunks else ""
+    # 将分组按 batch_size 分批
+    group_items = list(grouped.items())
+    batches = []
+    for i in range(0, len(group_items), batch_size):
+        batches.append(group_items[i:i + batch_size])
+
+    total_batches = len(batches)
+    for batch_idx, batch in enumerate(batches, 1):
+        # 合并本批次所有 chunk 的文本
+        combined_texts = []
+        source = ""
+        for key, group_chunks in batch:
+            combined_texts.append("\n\n".join(c.content for c in group_chunks))
+            if not source and group_chunks:
+                source = group_chunks[0].source
+
+        combined_text = "\n\n---\n\n".join(combined_texts)
 
         # 如果合并后文本太长，截断（LLM 上下文限制）
-        if len(combined_text) > 6000:
-            combined_text = combined_text[:6000]
+        if len(combined_text) > 8000:
+            combined_text = combined_text[:8000]
 
-        print(f"  [{i}/{total_groups}] 正在抽取: {key} ({len(combined_text)} 字)")
+        print(f"  [批次 {batch_idx}/{total_batches}] 正在抽取 ({len(combined_text)} 字)")
 
         try:
             result = extract_from_text(combined_text, source)

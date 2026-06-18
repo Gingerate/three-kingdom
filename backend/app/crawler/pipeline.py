@@ -1,4 +1,4 @@
-"""爬虫管线 —— 搜索 → 下载 → 解析 → 入库"""
+"""爬虫管线 —— 搜索 → 下载 → 解析 → 入库（带去重）"""
 
 from __future__ import annotations
 
@@ -11,9 +11,6 @@ from app.crawler.scholar import (
     PaperMetadata,
 )
 from app.crawler.downloader import batch_download_pdfs, parse_all_pdfs
-from app.kg.corpus_import import load_all_documents
-from app.kg.text_splitter import split_document
-from app.rag.vectorstore import add_chunks_to_vectorstore
 
 
 def crawl_and_ingest(
@@ -80,7 +77,21 @@ def crawl_and_ingest(
     print("\n" + "=" * 50)
     print("第 4 步：加载文档 → 切分 → embedding → 入库")
 
-    documents = load_all_documents()
+    # 只加载爬取/解析产生的文档（processed 目录），而非全部 raw 目录
+    from app.kg.corpus_import import load_all_documents
+    from app.kg.text_splitter import split_document
+
+    # 优先加载 processed 目录的文档，如果没有则回退到 raw 目录
+    processed_docs = load_all_documents(str(processed_dir.parent / "processed"))
+    raw_docs = load_all_documents()
+    # 合并，去重（按 source）
+    seen_sources = set()
+    documents = []
+    for doc in processed_docs + raw_docs:
+        if doc.source not in seen_sources:
+            seen_sources.add(doc.source)
+            documents.append(doc)
+
     if not documents:
         print("没有找到可处理的文档")
         return {
@@ -97,20 +108,58 @@ def crawl_and_ingest(
 
     print(f"共 {len(all_chunks)} 个文本块，开始 embedding...")
 
+    # 使用带去重的入库
+    from app.rag.vectorstore import add_chunks_to_vectorstore
     from app.rag.embeddings import LocalHuggingFaceEmbeddings
+    from app.core.database import init_db
+    from app.kg.dedup import calculate_chunk_hash, is_chunk_exists, add_records_batch
+
+    init_db()
     embeddings = LocalHuggingFaceEmbeddings()
-    ingested = add_chunks_to_vectorstore(all_chunks, embeddings)
+
+    # 去重过滤
+    new_chunks = []
+    records_to_add = []
+    skipped = 0
+
+    for chunk in all_chunks:
+        chunk_hash = calculate_chunk_hash(chunk.content)
+        if is_chunk_exists(chunk_hash):
+            skipped += 1
+            continue
+        new_chunks.append(chunk)
+        records_to_add.append({
+            "chunk_hash": chunk_hash,
+            "source_file": chunk.source,
+            "chunk_index": chunk.chunk_index,
+            "chunk_content": chunk.content[:500],
+        })
+
+    if not new_chunks:
+        print("所有文本块已存在，跳过入库")
+        return {
+            "searched": len(papers),
+            "downloaded": len(parsed),
+            "parsed": len(parsed),
+            "ingested": 0,
+            "skipped": skipped,
+        }
+
+    ingested = add_chunks_to_vectorstore(new_chunks, embeddings)
+    add_records_batch(records_to_add)
 
     print(f"\n{'='*50}")
     print(f"管线完成！")
     print(f"  搜索论文: {len(papers)} 篇")
     print(f"  解析 PDF: {len(parsed)} 个")
     print(f"  文本块: {len(all_chunks)} 个")
-    print(f"  入库: {ingested} 条")
+    print(f"  新增入库: {ingested} 条")
+    print(f"  跳过重复: {skipped} 条")
 
     return {
         "searched": len(papers),
         "downloaded": len(parsed),
         "parsed": len(parsed),
         "ingested": ingested,
+        "skipped": skipped,
     }

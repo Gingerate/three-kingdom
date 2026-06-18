@@ -16,7 +16,8 @@ class RawDocument:
     filename: str
     filepath: str
     content: str
-    source: str      # 来源标识（如 "三国志", "三国演义", "论文_xxx"）
+    source: str      # 实际文件路径（相对于 raw/ 目录）
+    source_name: str  # 语义标识（如 "三国志", "三国演义"）
     category: str    # 分类（正史/演义/论文/史料）
 
 
@@ -94,12 +95,15 @@ def load_raw_documents(raw_dir: str | None = None) -> list[RawDocument]:
                 if not content.strip():
                     continue
 
-                source, category = detect_source(filepath.stem)  # 用 stem 去掉扩展名
+                source_name, category = detect_source(filepath.stem)  # 用 stem 去掉扩展名
+                # 使用相对于 raw/ 的路径作为 source
+                relative_path = str(filepath.relative_to(raw_path))
                 documents.append(RawDocument(
                     filename=filepath.name,
                     filepath=str(filepath),
                     content=content,
-                    source=source,
+                    source=relative_path,
+                    source_name=source_name,
                     category=category,
                 ))
             except Exception as e:
@@ -132,12 +136,15 @@ def load_pdf_documents(raw_dir: str | None = None) -> list[RawDocument]:
                 if not content.strip():
                     continue
 
-                source, category = detect_source(filepath.name)
+                source_name, category = detect_source(filepath.name)
+                # 使用相对于 raw/ 的路径作为 source
+                relative_path = str(filepath.relative_to(raw_path))
                 documents.append(RawDocument(
                     filename=filepath.name,
                     filepath=str(filepath),
                     content=content,
-                    source=source,
+                    source=relative_path,
+                    source_name=source_name,
                     category=category,
                 ))
         except Exception as e:

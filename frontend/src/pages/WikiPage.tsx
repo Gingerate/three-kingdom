@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Button, Tag, Spin, Empty, message } from 'antd';
-import { BookOutlined, ThunderboltOutlined } from '@ant-design/icons';
-
-const API_BASE = 'http://localhost:8000/api';
+import { Button, Tag, Spin, Empty, message, Select, Popconfirm, Modal, Input, Statistic, Row, Col } from 'antd';
+import { BookOutlined, ThunderboltOutlined, DeleteOutlined, EditOutlined, ClearOutlined } from '@ant-design/icons';
+import { getWikiPages, getKnowledgeSummaries, distillWiki, deleteWikiPage, updateWikiPage, getKnowledgeStats, cleanupKnowledge } from '../services/api';
 
 interface WikiPage {
   id: number;
@@ -29,22 +28,30 @@ export default function WikiPage() {
   const [loading, setLoading] = useState(false);
   const [distillLoading, setDistillLoading] = useState(false);
   const [view, setView] = useState<'list' | 'reader'>('list');
+  const [topicFilter, setTopicFilter] = useState<string>('');
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editPage, setEditPage] = useState<WikiPage | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [editTopic, setEditTopic] = useState('');
+  const [knowledgeStats, setKnowledgeStats] = useState<{ total: number; oldest: string; newest: string } | null>(null);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [topicFilter]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [wikiRes, knowRes] = await Promise.all([
-        fetch(`${API_BASE}/wiki`),
-        fetch(`${API_BASE}/knowledge?limit=50`),
+      const [wikiData, knowData, stats] = await Promise.all([
+        getWikiPages(topicFilter || undefined),
+        getKnowledgeSummaries(50),
+        getKnowledgeStats(),
       ]);
-      const wikiData = await wikiRes.json();
-      const knowData = await knowRes.json();
       setPages(wikiData.pages || []);
       setSummaries(knowData.summaries || []);
+      setKnowledgeStats(stats);
     } catch {
       message.error('加载数据失败');
     } finally {
@@ -52,15 +59,60 @@ export default function WikiPage() {
     }
   };
 
+  const handleCleanupKnowledge = async () => {
+    setCleanupLoading(true);
+    try {
+      const result = await cleanupKnowledge(30);
+      message.success(`已清理 ${result.deleted_count} 条超过 30 天的知识摘要`);
+      loadData();
+    } catch {
+      message.error('清理失败');
+    } finally {
+      setCleanupLoading(false);
+    }
+  };
+
+  // 提取所有主题标签
+  const topics = Array.from(new Set(pages.map(p => p.topic).filter(Boolean)));
+
+  const handleDeletePage = async (pageId: number) => {
+    try {
+      await deleteWikiPage(pageId);
+      message.success('删除成功');
+      loadData();
+    } catch {
+      message.error('删除失败');
+    }
+  };
+
+  const handleEditPage = (page: WikiPage) => {
+    setEditPage(page);
+    setEditTitle(page.title);
+    setEditContent(page.content);
+    setEditTopic(page.topic || '');
+    setEditModalVisible(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editPage) return;
+    try {
+      await updateWikiPage(editPage.id, {
+        title: editTitle,
+        content: editContent,
+        topic: editTopic,
+      });
+      message.success('更新成功');
+      setEditModalVisible(false);
+      loadData();
+    } catch {
+      message.error('更新失败');
+    }
+  };
+
   const handleDistill = async () => {
     setDistillLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/wiki/distill`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
+      const data = await distillWiki();
       if (data.status === 'ok') {
         message.success(`已生成 Wiki：${data.title}（${data.summary_count} 条摘要）`);
         loadData();
@@ -84,17 +136,56 @@ export default function WikiPage() {
     setView('list');
   };
 
-  // Markdown → HTML（简化版，支持标题、加粗、列表、分割线）
+  // 转义 HTML 特殊字符，防止 XSS
+  const escapeHtml = (text: string) => {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  };
+
+  // Markdown → HTML（简化版，支持标题、加粗、列表、分割线、代码块、有序列表）
   const renderMarkdown = (md: string) => {
-    return md
-      .replace(/^# (.+)$/gm, '<h1 class="wiki-h1">$1</h1>')
-      .replace(/^## (.+)$/gm, '<h2 class="wiki-h2">$1</h2>')
-      .replace(/^### (.+)$/gm, '<h3 class="wiki-h3">$1</h3>')
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/^\- (.+)$/gm, '<li class="wiki-li">$1</li>')
-      .replace(/^---$/gm, '<hr class="wiki-hr" />')
-      .replace(/\n\n/g, '</p><p class="wiki-p">')
-      .replace(/^(?!<[hl]|<li|<hr)(.+)$/gm, '<p class="wiki-p">$1</p>');
+    // 先转义 HTML 特殊字符
+    let html = escapeHtml(md);
+
+    // 代码块（```...```）
+    html = html.replace(/```[\s\S]*?```/g, (match) => {
+      const code = match.slice(3, -3).trim();
+      return `<pre class="wiki-pre"><code>${code}</code></pre>`;
+    });
+
+    // 行内代码（`...`）
+    html = html.replace(/`([^`]+)`/g, '<code class="wiki-code">$1</code>');
+
+    // 标题
+    html = html.replace(/^# (.+)$/gm, '<h1 class="wiki-h1">$1</h1>');
+    html = html.replace(/^## (.+)$/gm, '<h2 class="wiki-h2">$1</h2>');
+    html = html.replace(/^### (.+)$/gm, '<h3 class="wiki-h3">$1</h3>');
+
+    // 加粗和斜体
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+    // 无序列表
+    html = html.replace(/^\- (.+)$/gm, '<li class="wiki-li">$1</li>');
+
+    // 有序列表
+    html = html.replace(/^\d+\.\s+(.+)$/gm, '<li class="wiki-li-ordered">$1</li>');
+
+    // 分割线
+    html = html.replace(/^---$/gm, '<hr class="wiki-hr" />');
+
+    // 段落（非标签开头的行）
+    html = html.replace(/^(?!<[hlp]|<li|<hr|<pre|<code)(.+)$/gm, '<p class="wiki-p">$1</p>');
+
+    // 合并连续的列表项
+    html = html.replace(/(<li class="wiki-li">[\s\S]*?<\/li>)/g, '<ul class="wiki-ul">$1</ul>');
+    html = html.replace(/(<li class="wiki-li-ordered">[\s\S]*?<\/li>)/g, '<ol class="wiki-ol">$1</ol>');
+
+    return html;
   };
 
   if (view === 'reader' && selectedPage) {
@@ -108,7 +199,28 @@ export default function WikiPage() {
         <span className="page-header-title">知识沉淀</span>
         <Tag style={{ fontSize: 11 }}>{summaries.length} 条摘要</Tag>
         <Tag style={{ fontSize: 11 }}>{pages.length} 篇 Wiki</Tag>
+        <Select
+          placeholder="按主题筛选"
+          allowClear
+          style={{ width: 120 }}
+          value={topicFilter || undefined}
+          onChange={(v) => setTopicFilter(v || '')}
+          options={topics.map(t => ({ value: t, label: t }))}
+          size="small"
+        />
         <div className="page-header-spacer" />
+        <Popconfirm
+          title="确定清理超过 30 天的知识摘要？"
+          onConfirm={handleCleanupKnowledge}
+        >
+          <Button
+            icon={<ClearOutlined />}
+            loading={cleanupLoading}
+            size="small"
+          >
+            清理旧摘要
+          </Button>
+        </Popconfirm>
         <Button
           type="primary"
           icon={<ThunderboltOutlined />}
@@ -149,32 +261,54 @@ export default function WikiPage() {
                   {pages.map((page) => (
                     <div
                       key={page.id}
-                      onClick={() => openPage(page)}
                       className="wiki-card"
                     >
-                      <div style={{
-                        fontFamily: 'var(--font-display)',
-                        fontSize: 15,
-                        fontWeight: 700,
-                        color: 'var(--ink-100)',
-                        marginBottom: 8,
-                      }}>
-                        {page.title}
+                      <div onClick={() => openPage(page)} style={{ cursor: 'pointer' }}>
+                        <div style={{
+                          fontFamily: 'var(--font-display)',
+                          fontSize: 15,
+                          fontWeight: 700,
+                          color: 'var(--ink-100)',
+                          marginBottom: 8,
+                        }}>
+                          {page.title}
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--ink-40)', marginBottom: 8 }}>
+                          {new Date(page.created_at).toLocaleDateString('zh-CN')}
+                          {page.topic && <Tag style={{ marginLeft: 8, fontSize: 11 }}>{page.topic}</Tag>}
+                        </div>
+                        <div style={{
+                          fontSize: 13,
+                          color: 'var(--ink-60)',
+                          lineHeight: 1.6,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 3,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}>
+                          {(page.content || page.content_preview || '').replace(/[#*\-]/g, '').slice(0, 150)}...
+                        </div>
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--ink-40)', marginBottom: 8 }}>
-                        {new Date(page.created_at).toLocaleDateString('zh-CN')}
-                        {page.topic && <Tag style={{ marginLeft: 8, fontSize: 11 }}>{page.topic}</Tag>}
-                      </div>
-                      <div style={{
-                        fontSize: 13,
-                        color: 'var(--ink-60)',
-                        lineHeight: 1.6,
-                        display: '-webkit-box',
-                        WebkitLineClamp: 3,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                      }}>
-                        {page.content.replace(/[#*\-]/g, '').slice(0, 150)}...
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<EditOutlined />}
+                          onClick={(e) => { e.stopPropagation(); handleEditPage(page); }}
+                        />
+                        <Popconfirm
+                          title="确定删除此 Wiki 页面？"
+                          onConfirm={(e) => { e?.stopPropagation(); handleDeletePage(page.id); }}
+                          onCancel={(e) => e?.stopPropagation()}
+                        >
+                          <Button
+                            type="text"
+                            size="small"
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </Popconfirm>
                       </div>
                     </div>
                   ))}
@@ -229,6 +363,37 @@ export default function WikiPage() {
           </>
         )}
       </div>
+
+      {/* 编辑 Modal */}
+      <Modal
+        title="编辑 Wiki 页面"
+        open={editModalVisible}
+        onOk={handleSaveEdit}
+        onCancel={() => setEditModalVisible(false)}
+        width={800}
+        okText="保存"
+        cancelText="取消"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={{ fontSize: 13, color: 'var(--ink-60)', marginBottom: 4, display: 'block' }}>标题</label>
+            <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: 13, color: 'var(--ink-60)', marginBottom: 4, display: 'block' }}>主题标签</label>
+            <Input value={editTopic} onChange={(e) => setEditTopic(e.target.value)} placeholder="如：人物、战役、制度" />
+          </div>
+          <div>
+            <label style={{ fontSize: 13, color: 'var(--ink-60)', marginBottom: 4, display: 'block' }}>内容 (Markdown)</label>
+            <Input.TextArea
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              rows={15}
+              style={{ fontFamily: 'monospace' }}
+            />
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -409,6 +574,42 @@ function WikiReader({ page, onClose, renderMarkdown }: {
         .wiki-p strong {
           color: var(--ink-100);
           font-weight: 700;
+        }
+        .wiki-pre {
+          background: var(--bg-base);
+          border: 1px solid var(--border);
+          border-radius: var(--r-sm);
+          padding: 12px 16px;
+          overflow-x: auto;
+          margin: 12px 0;
+        }
+        .wiki-pre code {
+          font-family: 'Consolas', 'Monaco', monospace;
+          font-size: 13px;
+          color: var(--ink-80);
+        }
+        .wiki-code {
+          background: var(--bg-base);
+          border: 1px solid var(--border);
+          border-radius: 3px;
+          padding: 1px 6px;
+          font-family: 'Consolas', 'Monaco', monospace;
+          font-size: 0.9em;
+          color: var(--vermilion);
+        }
+        .wiki-ul, .wiki-ol {
+          margin: 8px 0;
+          padding-left: 24px;
+        }
+        .wiki-li-ordered {
+          font-size: 15px;
+          line-height: 2;
+          color: var(--ink-80);
+          margin: 4px 0;
+        }
+        .wiki-p em {
+          font-style: italic;
+          color: var(--ink-60);
         }
       `}</style>
     </div>
