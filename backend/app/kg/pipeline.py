@@ -211,6 +211,7 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
             return {"documents": 0, "chunks": 0, "ingested": 0, "skipped": 0}
 
         # 2. 切分
+        print(f"[pipeline] 开始切分 {len(documents)} 个文档...", flush=True)
         update(stage="切分文本", message="正在切分...")
         all_chunks: list[Chunk] = []
         for i, doc in enumerate(documents):
