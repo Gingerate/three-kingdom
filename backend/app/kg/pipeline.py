@@ -211,17 +211,19 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
             return {"documents": 0, "chunks": 0, "ingested": 0, "skipped": 0}
 
         # 2. 切分
-        print(f"[pipeline] 开始切分 {len(documents)} 个文档...", flush=True)
+        logger.info(f"开始切分 {len(documents)} 个文档...")
         update(stage="切分文本", message="正在切分...")
         all_chunks: list[Chunk] = []
         for i, doc in enumerate(documents):
+            logger.info(f"切分文档 {i+1}/{len(documents)}: {doc.source} ({len(doc.content)} 字)")
             chunks = split_document(doc.content, doc.source, doc.category, doc.source_name)
             all_chunks.extend(chunks)
+            logger.info(f"  → 完成: {len(chunks)} 块")
             update(current=i + 1, total=len(documents),
                    message=f"切分 [{doc.source_name}] {doc.source}: {len(chunks)} 块")
 
         update(message=f"共 {len(all_chunks)} 个文本块")
-        print(f"[pipeline] 切分完成，共 {len(all_chunks)} 个文本块，开始去重检查...", flush=True)
+        logger.info(f"切分完成，共 {len(all_chunks)} 个文本块，开始去重检查...")
 
         # 3. 去重检查
         update(stage="去重检查", current=0, total=len(all_chunks),
@@ -251,7 +253,7 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
                        message=f"检查进度 {i + 1}/{len(all_chunks)}，新增 {len(new_chunks)}，跳过 {skipped}")
 
         update(message=f"去重完成：新增 {len(new_chunks)} 个文本块，跳过 {skipped} 个已存在文本块")
-        print(f"[pipeline] 去重完成，准备进入 embedding 步骤...", flush=True)
+        logger.info("去重完成，准备进入 embedding 步骤...")
 
         if not new_chunks:
             update(done=True, message=f"没有新的文本块需要入库（共 {len(all_chunks)} 个，全部已存在）")
@@ -269,29 +271,29 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
         from app.rag.embeddings import get_embeddings
         from app.rag.vectorstore import get_vectorstore, chunks_to_documents
 
-        print(f"[pipeline] 加载 embedding 模型...", flush=True)
+        logger.info("加载 embedding 模型...")
         embeddings = get_embeddings()
-        print(f"[pipeline] embedding 模型加载完成", flush=True)
+        logger.info("embedding 模型加载完成")
 
         # 5. 写入向量库
-        print(f"[pipeline] 获取向量库实例...", flush=True)
+        logger.info("获取向量库实例...")
         vectorstore = get_vectorstore(embeddings)
         docs = chunks_to_documents(new_chunks)
-        print(f"[pipeline] 准备写入 {len(docs)} 个文档...", flush=True)
+        logger.info(f"准备写入 {len(docs)} 个文档...")
 
         batch_size = 100
         ingested = 0
 
         for i in range(0, len(docs), batch_size):
             batch = docs[i:i + batch_size]
-            print(f"[pipeline] 写入批次 {i//batch_size + 1}/{(len(docs)-1)//batch_size + 1}...", flush=True)
+            logger.info(f"写入批次 {i//batch_size + 1}/{(len(docs)-1)//batch_size + 1}...")
             vectorstore.add_documents(batch)
             ingested += len(batch)
 
             update(current=ingested, total=len(new_chunks),
                    message=f"Embedding {ingested}/{len(new_chunks)}")
 
-        print(f"[pipeline] 写入完成，记录去重信息...", flush=True)
+        logger.info("写入完成，记录去重信息...")
         # 6. 记录去重信息（向量库写入成功后再记录，若此步失败重试仅产生重复，不会丢数据）
         add_records_batch(records_to_add)
         logger.info(f"已记录 {len(records_to_add)} 条去重信息")

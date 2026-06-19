@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class ValidationLevel(Enum):
@@ -228,9 +231,9 @@ def validate_documents(documents: list, filename_key: str = "filename") -> tuple
         if result.passed:
             passed_docs.append(doc)
             if result.has_warnings:
-                print(f"  ⚠ {filename}: {'; '.join(result.details)}")
+                logger.warning(f"  ⚠ {filename}: {'; '.join(result.details)}")
         else:
-            print(f"  ✗ {filename}: {result.message}")
+            logger.warning(f"  ✗ {filename}: {result.message}")
 
     # 统计
     report = QualityReport(

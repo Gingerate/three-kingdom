@@ -22,7 +22,6 @@ def _get_ocr():
             from paddleocr import PaddleOCR
             _ocr_instance = PaddleOCR(
                 lang="ch",           # 中文识别
-                show_log=False,      # 不输出调试日志
             )
             logger.info("PaddleOCR 初始化完成")
         except ImportError:

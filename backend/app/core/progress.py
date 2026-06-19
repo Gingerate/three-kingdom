@@ -51,7 +51,8 @@ class ProgressTracker:
     def __init__(self):
         self._tasks: dict[str, ProgressState] = {}
         self._subscribers: dict[str, list[asyncio.Queue]] = {}
-        self._lock = threading.Lock()  # 保护 _tasks 和 _subscribers 的并发访问
+        # RLock（可重入锁）：update() → _notify() 会重入，且避免 subscribe() yield 时阻塞 worker 线程
+        self._lock = threading.RLock()
         # 启动后台清理线程
         self._cleanup_thread = threading.Thread(target=self._auto_cleanup_loop, daemon=True)
         self._cleanup_thread.start()
@@ -107,6 +108,8 @@ class ProgressTracker:
         Args:
             task_id: 任务 ID
             timeout: 超时时间（秒），默认 5 分钟
+
+        注意：yield 时绝不能持有 self._lock，否则 worker 线程的 update() 会死锁。
         """
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
 
@@ -114,7 +117,7 @@ class ProgressTracker:
         with self._lock:
             self._subscribers.setdefault(task_id, []).append(queue)
 
-        # 先发送当前状态
+        # 先发送当前状态（锁内读取，锁外 yield）
         with self._lock:
             state = self._tasks.get(task_id)
         if state:
@@ -138,7 +141,7 @@ class ProgressTracker:
                     if data.get("done"):
                         break
                 except asyncio.TimeoutError:
-                    # 发送心跳保持连接
+                    # 心跳：锁内读取，锁外 yield
                     with self._lock:
                         current_state = self._tasks.get(task_id)
                     if current_state:

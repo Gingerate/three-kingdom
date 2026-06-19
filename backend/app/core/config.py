@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     # Chunking
     chunk_size: int = 400
     chunk_overlap: int = 50
-    agentic_split: bool = True  # 是否启用 LLM 语义分块
+    agentic_split: bool = False  # 是否启用 LLM 语义分块（批量入库时建议关闭，逐篇精切时再开启）
 
     # API
     api_host: str = "0.0.0.0"
