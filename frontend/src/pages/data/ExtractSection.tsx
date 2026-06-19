@@ -104,7 +104,7 @@ export default function ExtractSection() {
 
   return (
     <Section title="批量知识抽取">
-      <p style={{ color: 'var(--ink-60)', fontSize: 13, marginBottom: 14 }}>
+      <p style={{ color: 'var(--color-ink-3)', fontSize: 13, marginBottom: 14 }}>
         对 raw/ 目录下的所有语料进行知识抽取，结果进入审核队列
       </p>
       <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>

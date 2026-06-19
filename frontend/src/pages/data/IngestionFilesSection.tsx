@@ -99,7 +99,7 @@ export default function IngestionFilesSection({ onRefresh }: IngestionFilesSecti
             <div className="stat-divider" />
             <div className="stat-item">
               <span>已选择：</span>
-              <span className="stat-value" style={{ color: 'var(--vermilion)' }}>
+              <span className="stat-value" style={{ color: 'var(--color-accent)' }}>
                 {selectedFiles.length}
               </span>
             </div>

@@ -22,6 +22,7 @@ class PaperMetadata:
     citation_count: int = 0
     source: str = "Google Scholar"
     keyword: str = ""  # 搜索时使用的关键词
+    journal: str = ""  # 期刊名
 
 
 # ==================== 关键词策略（皇帝视角） ====================
@@ -150,6 +151,7 @@ def search_scholar(keyword: str, max_results: int = 10) -> list[PaperMetadata]:
                 pdf_url=result.get("eprint_url", ""),
                 citation_count=result.get("num_citations", 0),
                 keyword=keyword,
+                journal=bib.get("journal", "") or bib.get("venue", "") or bib.get("booktitle", ""),
             )
             papers.append(paper)
 

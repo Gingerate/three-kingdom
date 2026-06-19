@@ -68,12 +68,12 @@ export default function ChatPipelineProgress({ completedNodes = [], currentNode 
         .pipeline-connector {
           width: 20px;
           height: 1px;
-          background: var(--border);
+          background: var(--color-rule);
           transition: background 0.3s ease;
         }
 
         .pipeline-connector.active {
-          background: var(--ink-40);
+          background: var(--color-ink-4);
         }
 
         .pipeline-step {
@@ -83,44 +83,44 @@ export default function ChatPipelineProgress({ completedNodes = [], currentNode 
           display: flex;
           align-items: center;
           justify-content: center;
-          background: var(--bg-surface);
-          border: 1.5px solid var(--border);
+          background: var(--color-paper-2);
+          border: 1.5px solid var(--color-rule);
           transition: all 0.3s ease;
           flex-shrink: 0;
         }
 
         .pipeline-step.completed {
-          background: var(--ink-80);
-          border-color: var(--ink-80);
+          background: var(--color-ink-2);
+          border-color: var(--color-ink-2);
         }
 
         .pipeline-step.current {
-          border-color: var(--vermilion);
-          box-shadow: 0 0 0 3px var(--vermilion-faint);
+          border-color: var(--color-accent);
+          box-shadow: 0 0 0 3px var(--color-accent-bg);
           animation: pulse-ring 1.5s ease-in-out infinite;
         }
 
         .pipeline-check {
           font-size: 9px;
-          color: var(--bg-surface);
+          color: var(--color-paper-2);
         }
 
         .pipeline-dot {
           width: 5px;
           height: 5px;
           border-radius: 50%;
-          background: var(--ink-20);
+          background: var(--color-ink-5);
         }
 
         .pipeline-step.current .pipeline-dot {
-          background: var(--vermilion);
+          background: var(--color-accent);
           animation: dot-pulse 1.2s ease-in-out infinite;
         }
 
         .pipeline-label {
           font-family: var(--font-display);
           font-size: 11px;
-          color: var(--ink-20);
+          color: var(--color-ink-5);
           margin-left: 3px;
           margin-right: 6px;
           transition: color 0.3s ease;
@@ -128,12 +128,12 @@ export default function ChatPipelineProgress({ completedNodes = [], currentNode 
         }
 
         .pipeline-label.active {
-          color: var(--ink-60);
+          color: var(--color-ink-3);
         }
 
         @keyframes pulse-ring {
-          0%, 100% { box-shadow: 0 0 0 3px var(--vermilion-faint); }
-          50% { box-shadow: 0 0 0 5px var(--vermilion-faint); }
+          0%, 100% { box-shadow: 0 0 0 3px var(--color-accent-bg); }
+          50% { box-shadow: 0 0 0 5px var(--color-accent-bg); }
         }
 
         @keyframes dot-pulse {

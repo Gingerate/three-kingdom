@@ -111,7 +111,7 @@ export default function IngestSection({ onSuccess }: IngestSectionProps) {
 
   return (
     <Section title="批量入库">
-      <p style={{ color: 'var(--ink-60)', fontSize: 13, marginBottom: 14 }}>
+      <p style={{ color: 'var(--color-ink-3)', fontSize: 13, marginBottom: 14 }}>
         将 backend/data/raw/ 目录下的所有文件执行入库流程
       </p>
       <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
@@ -131,7 +131,7 @@ export default function IngestSection({ onSuccess }: IngestSectionProps) {
           checked={clearFirst}
           onChange={(e) => setClearFirst(e.target.checked)}
           disabled={loading}
-          style={{ fontSize: 13, color: 'var(--ink-60)' }}
+          style={{ fontSize: 13, color: 'var(--color-ink-3)' }}
         >
           先清空向量库再入库（避免重复）
         </Checkbox>
@@ -139,7 +139,7 @@ export default function IngestSection({ onSuccess }: IngestSectionProps) {
           checked={forceReingest}
           onChange={(e) => setForceReingest(e.target.checked)}
           disabled={loading}
-          style={{ fontSize: 13, color: 'var(--ink-60)' }}
+          style={{ fontSize: 13, color: 'var(--color-ink-3)' }}
         >
           强制重新入库（忽略去重记录，重新入库所有文件）
         </Checkbox>

@@ -297,6 +297,7 @@ class IngestRequest(BaseModel):
     """入库请求"""
     clear_first: bool = False  # 是否先清空再入库
     force_reingest: bool = False  # 是否强制重新入库（忽略去重记录）
+    files: list[str] | None = None  # 指定入库的文件列表（相对于 raw/ 目录的路径），为 None 时入库全部
 
 
 @api_router.post("/ingest")
@@ -310,12 +311,13 @@ async def ingest_data(req: IngestRequest | None = None):
     tracker.create_task(task_id)
     clear = req.clear_first if req else False
     force = req.force_reingest if req else False
+    file_list = req.files if req else None
 
     # 后台运行
     async def run_ingest():
         from app.kg.pipeline import process_and_ingest_with_progress
         try:
-            result = process_and_ingest_with_progress(task_id, clear_first=clear, force_reingest=force)
+            result = process_and_ingest_with_progress(task_id, clear_first=clear, force_reingest=force, files=file_list)
             tracker.update(task_id, done=True, message="入库完成")
         except Exception as e:
             tracker.update(task_id, done=True, error=str(e))
@@ -364,9 +366,9 @@ async def upload_and_ingest(file: UploadFile = File(...)):
 
     await asyncio.to_thread(_save_file)
 
-    # 触发入库
+    # 触发入库（只入库刚上传的文件）
     from app.kg.pipeline import process_and_ingest
-    result = await asyncio.to_thread(process_and_ingest)
+    result = await asyncio.to_thread(process_and_ingest, files=[safe_filename])
 
     return {
         "status": "ok",
@@ -392,8 +394,9 @@ async def get_stats():
 @api_router.get("/ingestion/files")
 async def get_ingestion_files():
     """获取已入库文件列表和 chunk 数量"""
+    import asyncio
     from app.kg.dedup import get_all_files
-    files = get_all_files()
+    files = await asyncio.to_thread(get_all_files)
     return {"files": files}
 
 
@@ -476,45 +479,52 @@ async def cleanup_duplicates():
 
 @api_router.get("/files")
 async def list_raw_files():
-    """获取 raw/ 目录下的文件列表"""
+    """获取 raw/ 目录下的文件列表（4 种状态：待转换/可入库/已入库/不支持）"""
+    import asyncio
     from pathlib import Path
     from app.core.config import settings
     from app.tools.translator import SUPPORTED_EXTENSIONS
+    from app.kg.dedup import get_all_files
 
-    raw_dir = Path(settings.raw_data_dir)
-    if not raw_dir.exists():
-        return {"files": []}
+    def _scan():
+        raw_dir = Path(settings.raw_data_dir)
+        if not raw_dir.exists():
+            return []
 
-    files = []
-    for filepath in sorted(raw_dir.rglob("*")):
-        if filepath.is_file():
-            # 判断文件类型
+        # 查询已入库文件集合（set 精确匹配，O(1) 查找）
+        ingested_files = get_all_files()
+        ingested_names = {f["source_file"] for f in ingested_files}
+
+        files = []
+        for filepath in sorted(raw_dir.rglob("*")):
+            if not filepath.is_file():
+                continue
             suffix = filepath.suffix.lower()
+
+            # 基础状态判断（4 种：pending / ready / ingested / unsupported）
             if suffix in {".txt", ".md", ".text", ".pdf"}:
-                file_type = "可入库"
                 status = "ready"
             elif suffix in SUPPORTED_EXTENSIONS:
-                file_type = "需转换"
-                # 检查是否已转换
-                md_path = filepath.with_suffix(".md")
-                if md_path.exists():
-                    status = "converted"
-                else:
-                    status = "pending"
+                status = "ready" if filepath.with_suffix(".md").exists() else "pending"
             else:
-                file_type = "其他"
                 status = "unsupported"
+
+            # 已入库检测：精确匹配文件名（去后缀）
+            if status == "ready" and filepath.stem in ingested_names:
+                status = "ingested"
 
             files.append({
                 "filename": filepath.name,
                 "filepath": str(filepath.relative_to(raw_dir)),
                 "size": filepath.stat().st_size,
                 "modified": filepath.stat().st_mtime,
-                "file_type": file_type,
                 "status": status,
                 "suffix": suffix,
             })
 
+        return files
+
+    files = await asyncio.to_thread(_scan)
     return {"files": files}
 
 
@@ -821,13 +831,19 @@ async def list_keywords():
 @api_router.get("/crawl/results")
 async def get_crawl_results():
     """获取已有的爬取结果"""
+    import asyncio
     from pathlib import Path
     from app.core.config import settings
-    results_file = Path(settings.raw_data_dir).parent / "processed" / "scholar_results.json"
-    if not results_file.exists():
-        return {"status": "ok", "papers": [], "count": 0}
     from app.crawler.scholar import load_search_results
-    papers = load_search_results(str(results_file))
+
+    def _load():
+        results_file = Path(settings.raw_data_dir).parent / "processed" / "scholar_results.json"
+        if not results_file.exists():
+            return []
+        return load_search_results(str(results_file))
+
+    papers = await asyncio.to_thread(_load)
+
     return {
         "status": "ok",
         "papers": [
@@ -835,12 +851,13 @@ async def get_crawl_results():
                 "title": p.title,
                 "authors": p.authors,
                 "year": p.year,
-                "abstract": p.abstract,
+                "abstract": p.abstract[:200] + "..." if len(p.abstract) > 200 else p.abstract,
                 "keyword": p.keyword,
                 "citation_count": p.citation_count,
                 "url": p.url,
                 "pdf_url": p.pdf_url,
                 "source": p.source,
+                "journal": p.journal,
             }
             for p in papers
         ],
@@ -874,9 +891,13 @@ async def delete_crawl_result(index: int):
 
 @api_router.post("/crawl/ingest/{index}")
 async def ingest_crawl_result(index: int):
-    """将指定索引的论文导入知识库"""
+    """将指定索引的论文导入知识库（写入 raw/ + embedding + 写入向量库）"""
+    import uuid
+    import asyncio
     from pathlib import Path
     from app.core.config import settings
+    from app.core.progress import tracker
+
     results_file = Path(settings.raw_data_dir).parent / "processed" / "scholar_results.json"
     if not results_file.exists():
         raise HTTPException(status_code=404, detail="结果文件不存在")
@@ -889,8 +910,7 @@ async def ingest_crawl_result(index: int):
 
     paper = papers[index]
 
-    # 创建临时文件保存论文内容
-    import tempfile
+    # 组装论文内容为 Markdown
     content = f"# {paper.title}\n\n"
     content += f"**作者**: {', '.join(paper.authors)}\n"
     content += f"**年份**: {paper.year}\n"
@@ -909,9 +929,24 @@ async def ingest_crawl_result(index: int):
     filepath = Path(settings.raw_data_dir) / filename
     filepath.write_text(content, encoding="utf-8")
 
+    # 异步入库（embedding + 写入向量库）
+    task_id = str(uuid.uuid4())[:8]
+    tracker.create_task(task_id)
+
+    async def run_ingest():
+        from app.kg.pipeline import process_and_ingest_with_progress
+        try:
+            process_and_ingest_with_progress(task_id, files=[filename])
+            tracker.update(task_id, done=True, message="入库完成")
+        except Exception as e:
+            tracker.update(task_id, done=True, error=str(e))
+
+    asyncio.create_task(run_ingest())
+
     return {
         "status": "ok",
-        "message": f"已导入: {paper.title}",
+        "message": f"已提交入库任务: {paper.title}",
+        "task_id": task_id,
         "filename": filename,
     }
 

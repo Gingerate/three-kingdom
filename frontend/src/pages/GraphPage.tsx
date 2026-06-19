@@ -6,10 +6,16 @@ import { getGraph, searchGraph, getEntityDetail, getCoverage, type GraphData } f
 
 const { Search } = Input;
 
+/** 读取 CSS 变量的计算颜色值（用于 G6 等不支持 CSS 变量的库） */
+function getCSSColor(varName: string): string {
+  const val = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+  return val || '#999';
+}
+
 const ENTITY_COLORS: Record<string, string> = {
-  person: '#b94432',
-  event: '#5c7a6e',
-  force: '#8b7355',
+  person: getCSSColor('--color-accent'),
+  event: getCSSColor('--color-green'),
+  force: getCSSColor('--color-bronze'),
 };
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -105,14 +111,14 @@ export default function GraphPage() {
             return d.data?._highlighted ? base * 1.3 : base;
           },
           fill: (d: any) => {
-            if (d.data?._highlighted) return '#ff6b35';
+            if (d.data?._highlighted) return getCSSColor('--color-accent');
             return ENTITY_COLORS[d.data?.type] || '#999';
           },
-          stroke: (d: any) => d.data?._highlighted ? '#ff6b35' : '#f7f3ec',
+          stroke: (d: any) => d.data?._highlighted ? getCSSColor('--color-accent') : getCSSColor('--color-paper'),
           lineWidth: (d: any) => d.data?._highlighted ? 3 : 2,
           labelText: (d: any) => d.data?.label || d.id,
           labelFontSize: 12,
-          labelFill: '#1a1a1a',
+          labelFill: getCSSColor('--color-ink'),
           labelFontFamily: '"LXGW WenKai", serif',
           labelPlacement: 'bottom',
           labelOffsetY: 5,
@@ -122,13 +128,13 @@ export default function GraphPage() {
       edge: {
         style: {
           endArrow: true,
-          stroke: '#d5d0c8',
+          stroke: getCSSColor('--color-rule'),
           lineWidth: 1.5,
           labelText: (d: any) => d.data?.label || '',
           labelFontSize: 10,
-          labelFill: '#636363',
+          labelFill: getCSSColor('--color-ink-3'),
           labelBackground: true,
-          labelBackgroundFill: '#f7f3ec',
+          labelBackgroundFill: getCSSColor('--color-paper'),
           labelBackgroundOpacity: 0.9,
           labelPadding: [2, 4],
         },
@@ -357,7 +363,7 @@ export default function GraphPage() {
             </Descriptions>
             {selectedRelations.length > 0 && (
               <div style={{ marginTop: 16 }}>
-                <h4 style={{ fontSize: 14, marginBottom: 8, color: 'var(--ink-80)' }}>
+                <h4 style={{ fontSize: 14, marginBottom: 8, color: 'var(--color-ink-2)' }}>
                   相关关系（{selectedRelations.length}）
                 </h4>
                 {selectedRelations.map((rel, i) => (
@@ -373,42 +379,6 @@ export default function GraphPage() {
         )}
       </Drawer>
 
-      <style>{`
-        .graph-stats-bar {
-          display: flex;
-          align-items: center;
-          gap: 20px;
-          padding: 10px 24px;
-          background: var(--bg-surface);
-          border-bottom: 1px solid var(--border-faint);
-          flex-shrink: 0;
-        }
-
-        .graph-stat-item {
-          display: flex;
-          align-items: baseline;
-          gap: 6px;
-        }
-
-        .graph-stat-value {
-          font-family: var(--font-display);
-          font-size: 18px;
-          font-weight: 700;
-          color: var(--ink-100);
-          font-variant-numeric: tabular-nums;
-        }
-
-        .graph-stat-label {
-          font-size: 12px;
-          color: var(--ink-40);
-        }
-
-        .graph-stat-divider {
-          width: 1px;
-          height: 24px;
-          background: var(--border);
-        }
-      `}</style>
     </div>
   );
 }

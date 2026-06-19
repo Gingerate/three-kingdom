@@ -13,20 +13,15 @@ function StatCard({ icon, label, value, small }: {
   small?: boolean;
 }) {
   return (
-    <div style={{
-      background: 'var(--bg-surface)',
-      border: '1px solid var(--border)',
-      borderRadius: 'var(--r-md)',
-      padding: '16px 18px',
-    }}>
-      <div style={{ fontSize: 12, color: 'var(--ink-40)', marginBottom: 4 }}>
+    <div className="stat-card">
+      <div style={{ fontSize: 12, color: 'var(--color-ink-4)', marginBottom: 4 }}>
         {icon} {label}
       </div>
       <div style={{
         fontSize: small ? 18 : 26,
         fontWeight: 700,
         fontFamily: 'var(--font-display)',
-        color: 'var(--ink-100)',
+        color: 'var(--color-ink)',
       }}>
         {value}
       </div>

@@ -77,20 +77,29 @@ def crawl_and_ingest(
     print("\n" + "=" * 50)
     print("第 4 步：加载文档 → 切分 → embedding → 入库")
 
-    # 只加载爬取/解析产生的文档（processed 目录），而非全部 raw 目录
+    # 只加载本次爬取产生的文档，不加载 raw 目录的其他文件
     from app.kg.corpus_import import load_all_documents
     from app.kg.text_splitter import split_document
 
-    # 优先加载 processed 目录的文档，如果没有则回退到 raw 目录
-    processed_docs = load_all_documents(str(processed_dir.parent / "processed"))
-    raw_docs = load_all_documents()
-    # 合并，去重（按 source）
-    seen_sources = set()
-    documents = []
-    for doc in processed_docs + raw_docs:
-        if doc.source not in seen_sources:
-            seen_sources.add(doc.source)
-            documents.append(doc)
+    # 从 processed 目录加载（主要是 scholar_results.json/.md）
+    documents = load_all_documents(str(processed_dir))
+
+    # 如果下载了 PDF，也加载本次爬取的 PDF 解析结果
+    if parsed:
+        import re
+        # 用论文标题构建文件名过滤集合
+        crawled_titles = set()
+        for p in papers:
+            safe = re.sub(r'[^\w\s-]', '', p.title)[:50].strip()
+            if safe:
+                crawled_titles.add(safe.lower())
+        # 加载 raw 目录中匹配本次爬取的文档
+        raw_docs = load_all_documents()
+        for doc in raw_docs:
+            doc_name_lower = doc.source.lower()
+            if any(t in doc_name_lower for t in crawled_titles):
+                if doc.source not in {d.source for d in documents}:
+                    documents.append(doc)
 
     if not documents:
         print("没有找到可处理的文档")

@@ -236,13 +236,14 @@ export default function ChatPage() {
             </div>
             <p className="welcome-sub">输入问题，从三国历史中探寻答案</p>
             <div className="quick-grid">
-              {QUICK_QUESTIONS.map((q) => (
+              {QUICK_QUESTIONS.map((q, i) => (
                 <button
                   key={q}
                   className="quick-btn"
                   onClick={() => onSend(q)}
                   aria-label={`快速提问：${q}`}
                 >
+                  <span className="quick-btn-num">{String(i + 1).padStart(2, '0')}</span>
                   {q}
                 </button>
               ))}
@@ -271,13 +272,13 @@ export default function ChatPage() {
                 {msg.role === 'assistant' && msg.route && (
                   <div style={{ marginTop: 8 }}>
                     <Tag
-                      color={msg.route === 'complex' ? 'orange' : 'green'}
-                      style={{ fontSize: 11, borderRadius: 'var(--r-xs)' }}
+                      color={msg.route === 'complex' ? 'gold' : 'green'}
+                      style={{ fontSize: 11, borderRadius: 'var(--radius-xs)' }}
                     >
                       {msg.route === 'complex' ? '复杂问题' : '简单问题'}
                     </Tag>
                     {msg.subQuestions && msg.subQuestions.length > 1 && (
-                      <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--ink-40)' }}>
+                      <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--color-ink-4)' }}>
                         子问题：{msg.subQuestions.join(' → ')}
                       </span>
                     )}
@@ -286,9 +287,9 @@ export default function ChatPage() {
 
                 {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
                   <>
-                    <Divider style={{ margin: '8px 0', borderColor: 'var(--border-faint)' }} />
+                    <Divider style={{ margin: '8px 0', borderColor: 'var(--color-rule-2)' }} />
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <LinkOutlined style={{ fontSize: 12, color: 'var(--ink-40)' }} />
+                      <LinkOutlined style={{ fontSize: 12, color: 'var(--color-ink-4)' }} />
                       {msg.sources.map((src, j) => (
                         <Tag key={j} style={{ fontSize: 11 }}>{src}</Tag>
                       ))}
@@ -335,7 +336,7 @@ export default function ChatPage() {
 
         {loading && streamStatus && (
           <div style={{ textAlign: 'center', padding: '4px 0' }}>
-            <span style={{ fontSize: 11, color: 'var(--ink-40)', fontFamily: 'var(--font-display)' }}>
+            <span style={{ fontSize: 11, color: 'var(--color-ink-4)', fontFamily: 'var(--font-display)' }}>
               {streamStatus}
             </span>
           </div>
@@ -347,17 +348,10 @@ export default function ChatPage() {
       {/* 输入区 */}
       <div style={{
         padding: '12px 32px 16px',
-        borderTop: '1px solid var(--border)',
-        background: 'var(--bg-surface)',
+        borderTop: '1px solid var(--color-rule)',
+        background: 'var(--color-paper-2)',
       }}>
-        <div style={{
-          display: 'flex',
-          gap: 8,
-          background: 'var(--bg-base)',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--r-md)',
-          padding: 6,
-        }}>
+        <div className="chat-input-wrapper">
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -382,7 +376,7 @@ export default function ChatPage() {
             icon={<SendOutlined />}
             onClick={() => onSend()}
             loading={loading}
-            style={{ borderRadius: 'var(--r-sm)' }}
+            style={{ borderRadius: 'var(--radius-sm)' }}
           />
         </div>
       </div>
@@ -402,11 +396,11 @@ export default function ChatPage() {
         .msg-meta {
           display: flex;
           align-items: center;
-          gap: 8px;
-          margin-top: 4px;
-          padding: 0 4px;
+          gap: var(--space-2xs);
+          margin-top: var(--space-3xs);
+          padding: 0 var(--space-3xs);
           opacity: 0;
-          transition: opacity 0.2s ease;
+          transition: opacity var(--dur-normal) var(--ease-out);
         }
 
         .msg:hover .msg-meta {
@@ -418,8 +412,8 @@ export default function ChatPage() {
         }
 
         .msg-time {
-          font-size: 11px;
-          color: var(--ink-40);
+          font-size: var(--text-xs);
+          color: var(--color-ink-4);
           font-variant-numeric: tabular-nums;
         }
 
@@ -432,15 +426,15 @@ export default function ChatPage() {
           border: none;
           background: none;
           cursor: pointer;
-          color: var(--ink-40);
-          border-radius: var(--r-xs);
-          transition: all var(--t-fast);
-          font-size: 12px;
+          color: var(--color-ink-4);
+          border-radius: var(--radius-xs);
+          transition: all var(--dur-fast) var(--ease-out);
+          font-size: var(--text-xs);
         }
 
         .msg-copy-btn:hover {
-          color: var(--ink-100);
-          background: var(--bg-hover);
+          color: var(--color-ink);
+          background: var(--color-paper-hover);
         }
 
         .msg-feedback-btn {
@@ -452,43 +446,40 @@ export default function ChatPage() {
           border: none;
           background: none;
           cursor: pointer;
-          color: var(--ink-40);
-          border-radius: var(--r-xs);
-          transition: all var(--t-fast);
-          font-size: 12px;
+          color: var(--color-ink-4);
+          border-radius: var(--radius-xs);
+          transition: all var(--dur-fast) var(--ease-out);
+          font-size: var(--text-xs);
         }
 
         .msg-feedback-btn:hover {
-          color: var(--ink-100);
-          background: var(--bg-hover);
+          color: var(--color-ink);
+          background: var(--color-paper-hover);
         }
 
         .msg-feedback-btn.active {
-          color: var(--slate-green);
+          color: var(--color-green);
         }
 
         .msg-feedback-btn.active.dislike {
-          color: var(--vermilion);
-        }
-
-        .welcome-quote {
-          text-align: center;
-          margin-bottom: 16px;
-          animation: fade-up 0.6s 0.25s var(--ease-out) both;
-        }
-
-        .welcome-quote-text {
-          font-family: var(--font-display);
-          font-size: 15px;
-          color: var(--ink-60);
-          line-height: 1.8;
-          font-style: italic;
+          color: var(--color-accent);
         }
 
         .welcome-quote-author {
-          font-size: 12px;
-          color: var(--ink-40);
-          margin-top: 4px;
+          font-size: var(--text-xs);
+          color: var(--color-ink-4);
+          margin-top: var(--space-3xs);
+        }
+
+        .quick-btn-num {
+          display: inline-block;
+          font-family: var(--font-display);
+          font-size: var(--text-xs);
+          font-weight: 700;
+          color: var(--color-accent);
+          opacity: 0.5;
+          margin-right: var(--space-2xs);
+          letter-spacing: -1px;
         }
       `}</style>
     </div>

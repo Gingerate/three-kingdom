@@ -15,6 +15,7 @@ SUPPORTED_EXTENSIONS = {
     ".json",           # JSON
     ".xml",            # XML
     ".epub",           # 电子书
+    ".mobi",           # Kindle 电子书
 }
 
 # 已经可以直接用的格式（无需转换）
@@ -74,6 +75,7 @@ def convert_to_md(source_path: str, output_dir: str | None = None) -> ConvertRes
         ".json": _convert_json,
         ".xml": _convert_xml,
         ".epub": _convert_epub,
+        ".mobi": _convert_mobi,
     }
 
     converter = converters.get(ext)
@@ -522,6 +524,34 @@ def _convert_epub(src: Path) -> str:
                 md_parts.append(text)
 
     return "\n\n---\n\n".join(md_parts)
+
+
+def _convert_mobi(src: Path) -> str:
+    """MOBI (Kindle) → Markdown（解压后复用 HTML 转换逻辑）"""
+    try:
+        import mobi
+    except ImportError:
+        raise RuntimeError("需要安装 mobi: pip install mobi")
+
+    import shutil
+    tempdir, filepath = mobi.extract(str(src))
+
+    try:
+        # mobi 解压后得到 HTML 文件，复用 _convert_html 逻辑
+        html_path = Path(filepath)
+        if html_path.suffix.lower() in ('.html', '.htm'):
+            return _convert_html(html_path)
+
+        # 如果不是 HTML，查找目录中的 HTML 文件
+        html_files = list(Path(tempdir).rglob("*.html")) + list(Path(tempdir).rglob("*.htm"))
+        if html_files:
+            return _convert_html(html_files[0])
+
+        # 最后 fallback：读取文本内容
+        content = html_path.read_text(encoding="utf-8", errors="ignore")
+        return _plain_text_to_md(content)
+    finally:
+        shutil.rmtree(tempdir, ignore_errors=True)
 
 
 # ==================== 工具函数 ====================

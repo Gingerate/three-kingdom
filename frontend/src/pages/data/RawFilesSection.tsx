@@ -1,11 +1,21 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button, Table, Popconfirm, Input, Select, Space, Tag, Drawer, message } from 'antd';
-import { FileTextOutlined, ReloadOutlined, DeleteOutlined, SwapOutlined, SearchOutlined } from '@ant-design/icons';
+import {
+  FileTextOutlined,
+  ReloadOutlined,
+  DeleteOutlined,
+  SwapOutlined,
+  SearchOutlined,
+  CloudUploadOutlined,
+  FilterOutlined,
+} from '@ant-design/icons';
 import {
   getRawFiles,
   convertFile,
   deleteRawFile,
   previewFile as previewFileApi,
+  ingestData,
+  API_BASE,
 } from '../../services/api';
 import Section from './Section';
 
@@ -14,10 +24,17 @@ interface RawFile {
   filepath: string;
   size: number;
   modified: number;
-  file_type: string;
   status: string;
   suffix: string;
 }
+
+// 状态配置（4 种：待转换 / 可入库 / 已入库 / 不支持）
+const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  pending: { label: '待转换', color: 'orange' },
+  ready: { label: '可入库', color: 'green' },
+  ingested: { label: '已入库', color: 'purple' },
+  unsupported: { label: '不支持', color: 'default' },
+};
 
 /** 原始文件管理区域 */
 export default function RawFilesSection() {
@@ -30,6 +47,9 @@ export default function RawFilesSection() {
   const [previewFile, setPreviewFile] = useState<string | null>(null);
   const [previewContent, setPreviewContent] = useState<string>('');
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [batchConverting, setBatchConverting] = useState(false);
+  const [batchIngesting, setBatchIngesting] = useState(false);
 
   useEffect(() => {
     fetchFiles();
@@ -61,6 +81,54 @@ export default function RawFilesSection() {
     }
   };
 
+  // 单文件入库（带 SSE 进度监听）
+  const handleIngestFile = useCallback((filepath: string) => {
+    const taskMessage = message.loading('入库任务提交中...', 0);
+
+    ingestData({ files: [filepath] })
+      .then((data) => {
+        taskMessage();
+        if (data.status !== 'ok') {
+          message.error(data.message || '入库失败');
+          return;
+        }
+
+        // 监听 SSE 进度
+        const taskId = data.task_id;
+        const evtSource = new EventSource(`${API_BASE}/ingest/progress/${taskId}`);
+
+        evtSource.onmessage = (event) => {
+          if (event.data === '[DONE]') {
+            evtSource.close();
+            return;
+          }
+          try {
+            const progress = JSON.parse(event.data);
+            if (progress.done) {
+              evtSource.close();
+              if (progress.error) {
+                message.error(`入库失败：${progress.error}`);
+              } else {
+                message.success('入库完成');
+                fetchFiles();
+              }
+            }
+          } catch {
+            // 忽略解析错误
+          }
+        };
+
+        evtSource.onerror = () => {
+          evtSource.close();
+          message.error('入库进度连接断开');
+        };
+      })
+      .catch(() => {
+        taskMessage();
+        message.error('入库任务提交失败');
+      });
+  }, []);
+
   const handleDeleteRawFile = async (filepath: string) => {
     try {
       await deleteRawFile(filepath);
@@ -90,6 +158,112 @@ export default function RawFilesSection() {
     }
   };
 
+  // 批量转换（前端并发调用，最多 3 个并发）
+  const handleBatchConvert = async () => {
+    const pendingFiles = files.filter(f => selectedKeys.includes(f.filepath) && f.status === 'pending');
+    if (pendingFiles.length === 0) {
+      message.warning('选中的文件中没有待转换的文件');
+      return;
+    }
+
+    setBatchConverting(true);
+    let success = 0;
+    let fail = 0;
+    const concurrency = 3;
+
+    for (let i = 0; i < pendingFiles.length; i += concurrency) {
+      const batch = pendingFiles.slice(i, i + concurrency);
+      const results = await Promise.allSettled(
+        batch.map(f => convertFile(f.filepath))
+      );
+      results.forEach(r => {
+        if (r.status === 'fulfilled' && r.value?.status === 'ok') {
+          success++;
+        } else {
+          fail++;
+        }
+      });
+      message.loading({ content: `转换进度 ${Math.min(i + concurrency, pendingFiles.length)}/${pendingFiles.length}`, key: 'batchConvert' });
+    }
+
+    message.destroy('batchConvert');
+    if (fail === 0) {
+      message.success(`批量转换完成：${success} 个文件全部成功`);
+    } else {
+      message.warning(`批量转换完成：成功 ${success}，失败 ${fail}`);
+    }
+    setSelectedKeys([]);
+    fetchFiles();
+    setBatchConverting(false);
+  };
+
+  // 批量入库（带 SSE 进度监听）
+  const handleBatchIngest = async () => {
+    const ingestibleFiles = files.filter(
+      f => selectedKeys.includes(f.filepath) && f.status === 'ready'
+    );
+    if (ingestibleFiles.length === 0) {
+      message.warning('选中的文件中没有可入库的文件');
+      return;
+    }
+
+    setBatchIngesting(true);
+    const taskMessage = message.loading('入库任务提交中...', 0);
+
+    try {
+      const data = await ingestData({ files: ingestibleFiles.map(f => f.filepath) });
+      taskMessage();
+
+      if (data.status !== 'ok') {
+        message.error(data.message || '入库失败');
+        setBatchIngesting(false);
+        return;
+      }
+
+      // 监听 SSE 进度
+      const taskId = data.task_id;
+      const evtSource = new EventSource(`${API_BASE}/ingest/progress/${taskId}`);
+
+      evtSource.onmessage = (event) => {
+        if (event.data === '[DONE]') {
+          evtSource.close();
+          return;
+        }
+        try {
+          const progress = JSON.parse(event.data);
+          if (progress.done) {
+            evtSource.close();
+            if (progress.error) {
+              message.error(`入库失败：${progress.error}`);
+            } else {
+              message.success(`批量入库完成，共 ${ingestibleFiles.length} 个文件`);
+              fetchFiles();
+            }
+          }
+        } catch {
+          // 忽略解析错误
+        }
+      };
+
+      evtSource.onerror = () => {
+        evtSource.close();
+        message.error('入库进度连接断开');
+      };
+    } catch {
+      taskMessage();
+      message.error('入库任务提交失败');
+    }
+
+    setSelectedKeys([]);
+    setBatchIngesting(false);
+  };
+
+  // 快捷选择：全选符合指定状态的文件（跨页生效）
+  const handleQuickSelect = (status: string) => {
+    const keys = files.filter(f => f.status === status).map(f => f.filepath);
+    setSelectedKeys(keys);
+  };
+
   // 格式化文件大小
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
@@ -101,19 +275,16 @@ export default function RawFilesSection() {
   const filteredAndSortedFiles = useMemo(() => {
     let result = [...files];
 
-    // 搜索过滤
     if (fileSearch) {
       result = result.filter(f =>
         f.filename.toLowerCase().includes(fileSearch.toLowerCase())
       );
     }
 
-    // 状态过滤
     if (fileStatusFilter) {
       result = result.filter(f => f.status === fileStatusFilter);
     }
 
-    // 排序
     result.sort((a, b) => {
       let cmp = 0;
       if (fileSortField === 'filename') {
@@ -129,6 +300,15 @@ export default function RawFilesSection() {
     return result;
   }, [files, fileSearch, fileStatusFilter, fileSortField, fileSortOrder]);
 
+  // 选中文件的状态统计
+  const selectedStats = useMemo(() => {
+    const selected = files.filter(f => selectedKeys.includes(f.filepath));
+    return {
+      pending: selected.filter(f => f.status === 'pending').length,
+      ingestible: selected.filter(f => f.status === 'ready').length,
+    };
+  }, [files, selectedKeys]);
+
   return (
     <Section title="原始文件管理">
       {/* 统计信息条 */}
@@ -140,16 +320,23 @@ export default function RawFilesSection() {
         </div>
         <div className="stat-divider" />
         <div className="stat-item">
-          <span>可入库：</span>
-          <span className="stat-value" style={{ color: 'var(--slate-green)' }}>
-            {files.filter(f => f.file_type === '可入库').length}
+          <span>待转换：</span>
+          <span className="stat-value" style={{ color: '#d48806' }}>
+            {files.filter(f => f.status === 'pending').length}
           </span>
         </div>
         <div className="stat-divider" />
         <div className="stat-item">
-          <span>需转换：</span>
-          <span className="stat-value" style={{ color: '#d48806' }}>
-            {files.filter(f => f.file_type === '需转换').length}
+          <span>可入库：</span>
+          <span className="stat-value" style={{ color: 'var(--slate-green)' }}>
+            {files.filter(f => f.status === 'ready').length}
+          </span>
+        </div>
+        <div className="stat-divider" />
+        <div className="stat-item">
+          <span>已入库：</span>
+          <span className="stat-value" style={{ color: '#722ed1' }}>
+            {files.filter(f => f.status === 'ingested').length}
           </span>
         </div>
       </div>
@@ -170,9 +357,9 @@ export default function RawFilesSection() {
           value={fileStatusFilter || undefined}
           onChange={(v) => setFileStatusFilter(v || '')}
           options={[
-            { value: 'ready', label: '可入库' },
-            { value: 'converted', label: '已转换' },
             { value: 'pending', label: '待转换' },
+            { value: 'ready', label: '可入库' },
+            { value: 'ingested', label: '已入库' },
             { value: 'unsupported', label: '不支持' },
           ]}
         />
@@ -193,6 +380,64 @@ export default function RawFilesSection() {
           size="small"
         />
         <div style={{ flex: 1 }} />
+
+        {/* 快捷选择按钮（未选中时显示） */}
+        {selectedKeys.length === 0 && (
+          <Space size={4}>
+            <Button
+              size="small"
+              icon={<FilterOutlined />}
+              onClick={() => handleQuickSelect('pending')}
+            >
+              全选待转换
+            </Button>
+            <Button
+              size="small"
+              icon={<FilterOutlined />}
+              onClick={() => handleQuickSelect('ready')}
+            >
+              全选可入库
+            </Button>
+          </Space>
+        )}
+
+        {/* 批量操作按钮（选中后显示） */}
+        {selectedKeys.length > 0 && (
+          <Space size={4}>
+            <span style={{ fontSize: 12, color: 'var(--color-ink-4)' }}>
+              已选 {selectedKeys.length} 个
+            </span>
+            {selectedStats.pending > 0 && (
+              <Button
+                size="small"
+                type="primary"
+                icon={<SwapOutlined />}
+                loading={batchConverting}
+                onClick={handleBatchConvert}
+              >
+                批量转换 ({selectedStats.pending})
+              </Button>
+            )}
+            {selectedStats.ingestible > 0 && (
+              <Button
+                size="small"
+                type="primary"
+                icon={<CloudUploadOutlined />}
+                loading={batchIngesting}
+                onClick={handleBatchIngest}
+              >
+                批量入库 ({selectedStats.ingestible})
+              </Button>
+            )}
+            <Button
+              size="small"
+              onClick={() => setSelectedKeys([])}
+            >
+              取消选择
+            </Button>
+          </Space>
+        )}
+
         <Button
           icon={<ReloadOutlined />}
           onClick={fetchFiles}
@@ -210,6 +455,10 @@ export default function RawFilesSection() {
           rowKey="filepath"
           loading={loading}
           size="small"
+          rowSelection={{
+            selectedRowKeys: selectedKeys,
+            onChange: (keys) => setSelectedKeys(keys as string[]),
+          }}
           pagination={{
             pageSize: 10,
             showSizeChanger: true,
@@ -221,7 +470,7 @@ export default function RawFilesSection() {
               title: '文件名',
               dataIndex: 'filename',
               key: 'filename',
-              width: 260,
+              width: 300,
               sorter: true,
               render: (text: string) => (
                 <span className="ingestion-filename">
@@ -231,32 +480,14 @@ export default function RawFilesSection() {
               ),
             },
             {
-              title: '类型',
-              dataIndex: 'file_type',
-              key: 'file_type',
-              width: 100,
-              render: (type: string) => (
-                <Tag color={type === '可入库' ? 'green' : type === '需转换' ? 'orange' : 'gray'}>
-                  {type}
-                </Tag>
-              ),
-            },
-            {
               title: '状态',
               dataIndex: 'status',
               key: 'status',
               width: 100,
-              render: (status: string) => (
-                <Tag color={
-                  status === 'ready' ? 'green' :
-                  status === 'converted' ? 'blue' :
-                  status === 'pending' ? 'orange' : 'red'
-                }>
-                  {status === 'ready' ? '可入库' :
-                   status === 'converted' ? '已转换' :
-                   status === 'pending' ? '待转换' : '不支持'}
-                </Tag>
-              ),
+              render: (status: string) => {
+                const config = STATUS_CONFIG[status] || { label: status, color: 'default' };
+                return <Tag color={config.color}>{config.label}</Tag>;
+              },
             },
             {
               title: '大小',
@@ -279,6 +510,16 @@ export default function RawFilesSection() {
                       onClick={() => handleConvertFile(record.filepath)}
                     >
                       转换
+                    </Button>
+                  )}
+                  {record.status === 'ready' && (
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<CloudUploadOutlined />}
+                      onClick={() => handleIngestFile(record.filepath)}
+                    >
+                      入库
                     </Button>
                   )}
                   <Button
@@ -325,10 +566,10 @@ export default function RawFilesSection() {
           fontFamily: 'var(--font-body)',
           fontSize: 13,
           lineHeight: 1.8,
-          color: 'var(--ink-80)',
-          background: 'var(--bg-base)',
+          color: 'var(--color-ink-2)',
+          background: 'var(--color-paper)',
           padding: 16,
-          borderRadius: 'var(--r-md)',
+          borderRadius: 'var(--radius-md)',
           maxHeight: 'calc(100vh - 200px)',
           overflow: 'auto',
         }}>

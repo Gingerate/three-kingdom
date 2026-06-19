@@ -44,16 +44,16 @@ export default function UploadSection({ onSuccess }: UploadSectionProps) {
         showUploadList={false}
         disabled={loading}
         style={{
-          background: 'var(--bg-base)',
-          borderColor: 'var(--border)',
-          borderRadius: 'var(--r-md)',
+          background: 'var(--color-paper)',
+          borderColor: 'var(--color-rule)',
+          borderRadius: 'var(--radius-md)',
         }}
       >
         <p className="ant-upload-drag-icon">
-          <InboxOutlined style={{ color: 'var(--vermilion)', fontSize: 40 }} />
+          <InboxOutlined style={{ color: 'var(--color-accent)', fontSize: 40 }} />
         </p>
-        <p style={{ color: 'var(--ink-80)', fontSize: 14 }}>点击或拖拽文件到此处</p>
-        <p style={{ color: 'var(--ink-40)', fontSize: 12 }}>
+        <p style={{ color: 'var(--color-ink-2)', fontSize: 14 }}>点击或拖拽文件到此处</p>
+        <p style={{ color: 'var(--color-ink-4)', fontSize: 12 }}>
           支持 .txt .md .pdf .epub .docx
         </p>
       </Upload.Dragger>

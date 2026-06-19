@@ -49,25 +49,25 @@ export default class ErrorBoundary extends Component<Props, State> {
           justifyContent: 'center',
           alignItems: 'center',
           minHeight: '100vh',
-          background: 'var(--bg-base)',
+          background: 'var(--color-paper)',
         }}>
           <Result
             status="error"
             title="页面渲染出错"
             subTitle={
-              <div style={{ color: 'var(--ink-60)', fontSize: 14 }}>
+              <div style={{ color: 'var(--color-ink-3)', fontSize: 14 }}>
                 <p>抱歉，页面遇到了一个意外错误。</p>
                 {this.state.error && (
                   <details style={{ marginTop: 12, textAlign: 'left' }}>
-                    <summary style={{ cursor: 'pointer', color: 'var(--ink-40)' }}>
+                    <summary style={{ cursor: 'pointer', color: 'var(--color-ink-4)' }}>
                       查看错误详情
                     </summary>
                     <pre style={{
                       marginTop: 8,
                       padding: 12,
-                      background: 'var(--bg-surface)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 'var(--r-sm)',
+                      background: 'var(--color-paper-2)',
+                      border: '1px solid var(--color-rule)',
+                      borderRadius: 'var(--radius-sm)',
                       fontSize: 12,
                       overflow: 'auto',
                       maxHeight: 200,

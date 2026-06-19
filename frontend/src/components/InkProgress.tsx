@@ -107,22 +107,22 @@ export default function InkProgress({ percent, stage, message, status = 'active'
           font-family: var(--font-display);
           font-size: 13px;
           font-weight: 600;
-          color: var(--vermilion);
+          color: var(--color-accent);
           letter-spacing: 0.05em;
         }
 
         .ink-progress-percent {
           font-family: var(--font-display);
           font-size: 13px;
-          color: var(--ink-60);
+          color: var(--color-ink-3);
           font-variant-numeric: tabular-nums;
         }
 
         .ink-progress-track {
           position: relative;
           height: 12px;
-          background: var(--bg-surface);
-          border: 1px solid var(--border);
+          background: var(--color-paper-2);
+          border: 1px solid var(--color-rule);
           border-radius: 2px;
           overflow: hidden;
         }
@@ -134,7 +134,7 @@ export default function InkProgress({ percent, stage, message, status = 'active'
           width: 6px;
           height: 6px;
           border-radius: 50%;
-          background: var(--ink-100);
+          background: var(--color-ink);
           opacity: 0.6;
           animation: drop-pulse 1.2s ease-in-out infinite;
           pointer-events: none;
@@ -144,7 +144,7 @@ export default function InkProgress({ percent, stage, message, status = 'active'
         .ink-progress-message {
           font-family: var(--font-body);
           font-size: 12px;
-          color: var(--ink-40);
+          color: var(--color-ink-4);
           margin-top: 4px;
           overflow: hidden;
           text-overflow: ellipsis;

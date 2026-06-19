@@ -321,7 +321,7 @@ export async function rejectReview(reviewId: number, reason: string = ''): Promi
 
 // ==================== 语料入库 ====================
 
-export async function ingestData(options?: { clear_first?: boolean; force_reingest?: boolean }): Promise<any> {
+export async function ingestData(options?: { clear_first?: boolean; force_reingest?: boolean; files?: string[] }): Promise<any> {
   return request('/ingest', {
     method: 'POST',
     body: JSON.stringify(options || {}),

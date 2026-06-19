@@ -19,7 +19,7 @@ export default function InkLoader({ size = 32 }: { size?: number }) {
           width: 8px;
           height: 8px;
           border-radius: 50%;
-          background: var(--ink-100);
+          background: var(--color-ink);
           opacity: 0;
           animation: ink-spread 1.4s ease-in-out infinite;
         }

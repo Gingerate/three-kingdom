@@ -1,0 +1,129 @@
+/* ============================================
+   三国知识库 · Almanac 设计系统 Tokens
+   Hallmark · genre: editorial · theme: Almanac
+   ============================================ */
+
+:root {
+  /* ── 色彩：OKLCH ── */
+  --color-paper:      oklch(96% 0.006 80);    /* 深象牙 — 宣纸 */
+  --color-paper-2:    oklch(100% 0 0);        /* 纯白 — 卡片表面 */
+  --color-paper-3:    oklch(93% 0.008 80);    /* 凹陷/阴影区 */
+  --color-paper-hover: oklch(94.5% 0.007 80); /* hover 态 */
+
+  --color-ink:        oklch(18% 0.005 60);    /* 墨黑 — 正文 */
+  --color-ink-2:      oklch(38% 0.005 60);    /* 次要文字 */
+  --color-ink-3:      oklch(52% 0.005 60);    /* 辅助文字 WCAG AA ≥ 5.3:1 */
+  --color-ink-4:      oklch(62% 0.006 80);    /* 占位符/禁用 WCAG AA ≥ 4.5:1 */
+  --color-ink-5:      oklch(78% 0.006 80);    /* 极淡 — 装饰性 */
+
+  --color-rule:       oklch(88% 0.008 80);    /* 发丝线 */
+  --color-rule-2:     oklch(92% 0.006 80);    /* 淡发丝线 */
+
+  --color-accent:     oklch(48% 0.14 30);     /* 朱砂红 — 主强调 */
+  --color-accent-2:   oklch(55% 0.12 30);     /* 浅朱砂 */
+  --color-accent-bg:  oklch(48% 0.02 30);     /* 朱砂淡底 */
+  --color-accent-ink: oklch(97% 0.005 80);    /* 朱砂上的文字 */
+
+  --color-green:      oklch(50% 0.06 160);    /* 青石绿 — 次强调 */
+  --color-green-bg:   oklch(50% 0.02 160);    /* 青石淡底 */
+
+  --color-amber:      oklch(62% 0.12 75);     /* 琥珀 — 警告/待处理 */
+  --color-amber-bg:   oklch(62% 0.02 75);     /* 琥珀淡底 */
+
+  --color-indigo:     oklch(48% 0.08 250);    /* 靛蓝 — 已转换 */
+  --color-indigo-bg:  oklch(48% 0.02 250);    /* 靛蓝淡底 */
+
+  --color-bronze:     oklch(52% 0.06 60);     /* 青铜 — 势力 */
+  --color-bronze-bg:  oklch(52% 0.02 60);     /* 青铜淡底 */
+
+  --color-focus:      oklch(48% 0.14 30);     /* 焦点环 — 朱砂 */
+
+  /* ── 圆角 ── */
+  --radius-bubble:    2px;
+  --radius-xs:        3px;
+  --radius-sm:        5px;
+  --radius-md:        8px;
+
+  /* ── 阴影 ── */
+  --shadow-sm:        0 1px 2px oklch(18% 0.005 60 / 0.04);
+  --shadow-md:        0 2px 8px oklch(18% 0.005 60 / 0.06);
+  --shadow-header:    0 1px 3px oklch(18% 0.005 60 / 0.04);
+  --shadow-card:      0 1px 4px oklch(18% 0.005 60 / 0.05);
+
+  /* ── 字体 ── */
+  --font-display:     "LXGW WenKai", "KaiTi", "楷体", serif;
+  --font-body:        "LXGW WenKai", system-ui, -apple-system, sans-serif;
+  --font-mono:        "Consolas", "Monaco", "Courier New", monospace;
+
+  /* ── 字号 ── */
+  --text-xs:          0.75rem;    /* 12px */
+  --text-sm:          0.8125rem;  /* 13px */
+  --text-md:          0.875rem;   /* 14px — 正文基准 */
+  --text-lg:          0.9375rem;  /* 15px */
+  --text-xl:          1.125rem;   /* 18px */
+  --text-2xl:         1.375rem;   /* 22px */
+  --text-3xl:         1.75rem;    /* 28px */
+  --text-display:     clamp(1.75rem, 3vw, 2.25rem);
+
+  /* ── 行高 ── */
+  --leading-tight:    1.4;
+  --leading-normal:   1.7;
+  --leading-relaxed:  2;
+
+  /* ── 间距：4pt 基准 ── */
+  --space-3xs:        0.25rem;    /* 4px */
+  --space-2xs:        0.5rem;     /* 8px */
+  --space-xs:         0.75rem;    /* 12px */
+  --space-sm:         1rem;       /* 16px */
+  --space-md:         1.5rem;     /* 24px */
+  --space-lg:         2rem;       /* 32px */
+  --space-xl:         3rem;       /* 48px */
+  --space-2xl:        4.5rem;     /* 72px */
+
+  /* ── 动画 ── */
+  --ease-out:         cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out:      cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast:         120ms;
+  --dur-normal:       200ms;
+  --dur-slow:         400ms;
+
+  /* ── 布局 ── */
+  --topbar-height:    52px;
+  --content-max-w:    720px;
+}
+
+/* ── 暗色模式 ── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper:      oklch(16% 0.005 60);
+    --color-paper-2:    oklch(20% 0.005 60);
+    --color-paper-3:    oklch(12% 0.005 60);
+    --color-paper-hover: oklch(23% 0.005 60);
+
+    --color-ink:        oklch(90% 0.005 80);
+    --color-ink-2:      oklch(75% 0.005 80);
+    --color-ink-3:      oklch(62% 0.005 80);
+    --color-ink-4:      oklch(48% 0.005 60);
+    --color-ink-5:      oklch(32% 0.005 60);
+
+    --color-rule:       oklch(28% 0.006 60);
+    --color-rule-2:     oklch(24% 0.005 60);
+
+    --color-accent:     oklch(60% 0.12 30);
+    --color-accent-2:   oklch(66% 0.10 30);
+    --color-accent-bg:  oklch(60% 0.03 30);
+    --color-accent-ink: oklch(16% 0.005 60);
+
+    --color-green:      oklch(62% 0.06 160);
+    --color-green-bg:   oklch(62% 0.02 160);
+    --color-amber:      oklch(72% 0.10 75);
+    --color-amber-bg:   oklch(72% 0.02 75);
+    --color-indigo:     oklch(60% 0.06 250);
+    --color-indigo-bg:  oklch(60% 0.02 250);
+
+    --shadow-sm:        0 1px 2px oklch(0% 0 0 / 0.2);
+    --shadow-md:        0 2px 8px oklch(0% 0 0 / 0.3);
+    --shadow-header:    0 1px 3px oklch(0% 0 0 / 0.2);
+    --shadow-card:      0 1px 4px oklch(0% 0 0 / 0.25);
+  }
+}

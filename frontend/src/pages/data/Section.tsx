@@ -2,9 +2,9 @@
 export default function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{
-      background: 'var(--bg-surface)',
-      border: '1px solid var(--border)',
-      borderRadius: 'var(--r-md)',
+      background: 'var(--color-paper-2)',
+      border: '1px solid var(--color-rule)',
+      borderRadius: 'var(--radius-md)',
       padding: 20,
       marginBottom: 20,
     }}>
@@ -12,7 +12,7 @@ export default function Section({ title, children }: { title: string; children: 
         fontFamily: 'var(--font-display)',
         fontSize: 15,
         fontWeight: 700,
-        color: 'var(--ink-100)',
+        color: 'var(--color-ink)',
         marginBottom: 14,
       }}>
         {title}

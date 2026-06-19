@@ -17,8 +17,13 @@ _is_ingesting = False
 def process_and_ingest(raw_dir: str | None = None,
                        quantize: bool = True,
                        clear_first: bool = False,
-                       force_reingest: bool = False) -> dict:
-    """完整处理流程：加载文档 → 切分 → embedding → 写入 Chroma"""
+                       force_reingest: bool = False,
+                       files: list[str] | None = None) -> dict:
+    """完整处理流程：加载文档 → 切分 → embedding → 写入 Chroma
+
+    Args:
+        files: 可选的文件路径列表（相对于 raw_dir），传入时只入库指定文件
+    """
 
     global _is_ingesting
 
@@ -53,7 +58,14 @@ def process_and_ingest(raw_dir: str | None = None,
         logger.info("=" * 50)
         logger.info("第 1 步：加载原始文档")
         documents = load_all_documents(raw_dir)
-        logger.info(f"共找到 {len(documents)} 个文档")
+
+        # 按 files 过滤（如果指定了文件列表）
+        if files:
+            files_set = set(files)
+            documents = [d for d in documents if d.source in files_set]
+            logger.info(f"指定入库 {len(files)} 个文件，匹配到 {len(documents)} 个文档")
+        else:
+            logger.info(f"共找到 {len(documents)} 个文档")
         for doc in documents:
             logger.info(f"  - [{doc.category}] {doc.source} ({len(doc.content)} 字)")
 
@@ -143,8 +155,13 @@ def process_and_ingest(raw_dir: str | None = None,
 def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
                                       quantize: bool = True,
                                       clear_first: bool = False,
-                                      force_reingest: bool = False) -> dict:
-    """带进度推送的入库流程"""
+                                      force_reingest: bool = False,
+                                      files: list[str] | None = None) -> dict:
+    """带进度推送的入库流程
+
+    Args:
+        files: 可选的文件路径列表（相对于 raw_dir），传入时只入库指定文件
+    """
 
     global _is_ingesting
 
@@ -183,10 +200,14 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
             cleanup_all()
             logger.info("已同步清空去重记录")
 
-        # 1. 加载文档
+        # 1. 加载文档（如果指定了 files，只加载指定文件）
         update(stage="加载文档", message="正在扫描 raw/ 目录...")
-        documents = load_all_documents(raw_dir)
-        update(message=f"找到 {len(documents)} 个文档")
+        documents = load_all_documents(raw_dir, files=files)
+
+        if files:
+            update(message=f"指定入库 {len(files)} 个文件，匹配到 {len(documents)} 个文档")
+        else:
+            update(message=f"找到 {len(documents)} 个文档")
 
         if not documents:
             update(done=True, error="没有找到文档，请将语料放入 backend/data/raw/")

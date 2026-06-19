@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button, Tag, message, Table, Select, Checkbox, Modal, Space, Popconfirm } from 'antd';
 import {
   CloudDownloadOutlined,
@@ -9,6 +9,7 @@ import {
   ImportOutlined,
   EyeOutlined,
   FileTextOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
 import {
   crawlPapers,
@@ -16,6 +17,7 @@ import {
   getCrawlResults,
   deleteCrawlResult,
   ingestCrawlResult,
+  API_BASE,
 } from '../services/api';
 import Section from './data/Section';
 import EmptyState from '../components/EmptyState';
@@ -30,6 +32,8 @@ interface Paper {
   url?: string;
   pdf_url?: string;
   source?: string;
+  journal?: string;
+  _originalIndex?: number;
 }
 
 export default function CrawlPage() {
@@ -63,7 +67,6 @@ export default function CrawlPage() {
     setPapersLoading(true);
     try {
       const data = await getCrawlResults();
-      // 为每条数据注入原始索引，排序后操作仍指向正确的后端数据
       const papersWithIndex = (data.papers || []).map((p: Paper, i: number) => ({ ...p, _originalIndex: i }));
       setPapers(papersWithIndex);
     } catch {
@@ -100,14 +103,57 @@ export default function CrawlPage() {
     }
   };
 
-  const handleIngest = async (index: number) => {
+  // 单篇入库（带 SSE 进度监听）
+  const handleIngest = useCallback(async (index: number) => {
     try {
       const result = await ingestCrawlResult(index);
-      message.success(result.message || '导入成功');
+      if (result.status !== 'ok') {
+        message.error(result.message || '入库失败');
+        return;
+      }
+
+      // 监听 SSE 进度
+      const taskId = result.task_id;
+      if (!taskId) {
+        message.success(result.message || '导入成功');
+        loadResults();
+        return;
+      }
+
+      const evtSource = new EventSource(`${API_BASE}/ingest/progress/${taskId}`);
+      message.loading({ content: '入库中...', key: 'ingest' });
+
+      evtSource.onmessage = (event) => {
+        if (event.data === '[DONE]') {
+          evtSource.close();
+          return;
+        }
+        try {
+          const progress = JSON.parse(event.data);
+          if (progress.done) {
+            evtSource.close();
+            message.destroy('ingest');
+            if (progress.error) {
+              message.error(`入库失败：${progress.error}`);
+            } else {
+              message.success('入库完成');
+              loadResults();
+            }
+          }
+        } catch {
+          // 忽略解析错误
+        }
+      };
+
+      evtSource.onerror = () => {
+        evtSource.close();
+        message.destroy('ingest');
+        message.error('入库进度连接断开');
+      };
     } catch {
-      message.error('导入失败');
+      message.error('入库失败');
     }
-  };
+  }, []);
 
   const handleViewDetail = (paper: Paper) => {
     setSelectedPaper(paper);
@@ -125,16 +171,25 @@ export default function CrawlPage() {
       title: '标题',
       dataIndex: 'title',
       key: 'title',
+      width: 350,
       ellipsis: true,
       render: (text: string) => (
         <span style={{ fontWeight: 600 }}>{text}</span>
       ),
     },
     {
+      title: '期刊',
+      dataIndex: 'journal',
+      key: 'journal',
+      width: 160,
+      ellipsis: true,
+      render: (journal: string) => journal || '-',
+    },
+    {
       title: '作者',
       dataIndex: 'authors',
       key: 'authors',
-      width: 180,
+      width: 160,
       ellipsis: true,
       render: (authors: string[]) => authors?.join(', ') || '-',
     },
@@ -164,7 +219,7 @@ export default function CrawlPage() {
       title: '操作',
       key: 'action',
       width: 200,
-      render: (_: any, record: Paper & { _originalIndex?: number }) => (
+      render: (_: any, record: Paper) => (
         <Space size="small">
           <Button
             size="small"
@@ -219,7 +274,7 @@ export default function CrawlPage() {
         <Section title="爬取配置">
 
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 13, color: 'var(--ink-60)', marginBottom: 8 }}>选择类别（不选则全部）</div>
+            <div style={{ fontSize: 13, color: 'var(--color-ink-3)', marginBottom: 8 }}>选择类别（不选则全部）</div>
             <Select
               mode="multiple"
               placeholder="选择类别"
@@ -232,7 +287,7 @@ export default function CrawlPage() {
 
           {selectedCategories.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 13, color: 'var(--ink-60)', marginBottom: 8 }}>关键词预览</div>
+              <div style={{ fontSize: 13, color: 'var(--color-ink-3)', marginBottom: 8 }}>关键词预览</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 {selectedCategories.flatMap(cat => keywords[cat] || []).map(kw => (
                   <Tag key={kw} style={{ fontSize: 11 }}>{kw}</Tag>
@@ -243,7 +298,7 @@ export default function CrawlPage() {
 
           <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
             <div>
-              <span style={{ fontSize: 13, color: 'var(--ink-60)', marginRight: 8 }}>每关键词最大数量：</span>
+              <span style={{ fontSize: 13, color: 'var(--color-ink-3)', marginRight: 8 }}>每关键词最大数量：</span>
               <Select
                 value={maxPerKeyword}
                 onChange={setMaxPerKeyword}
@@ -289,6 +344,7 @@ export default function CrawlPage() {
                 rowKey={(_, i) => String(i)}
                 loading={papersLoading}
                 size="small"
+                scroll={{ x: 1100 }}
                 pagination={{ pageSize: 10 }}
               />
             </div>
@@ -328,61 +384,109 @@ export default function CrawlPage() {
         width={700}
         className="themed-modal"
       >
-        {selectedPaper && (
-          <div style={{ lineHeight: 1.8 }}>
-            <h3 style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: 18,
-              fontWeight: 700,
-              color: 'var(--ink-100)',
-              marginBottom: 16,
-            }}>
-              {selectedPaper.title}
-            </h3>
+        {selectedPaper && (() => {
+          const title = selectedPaper.title;
+          const cnkiUrl = `https://kns.cnki.net/kns8/defaultresult/index?kw=${encodeURIComponent(title)}`;
+          const baiduUrl = `https://xueshu.baidu.com/s?wd=${encodeURIComponent(title)}`;
+          const gsUrl = `https://scholar.google.com/scholar?q=${encodeURIComponent(title)}`;
+          const hasMeta = selectedPaper.journal && selectedPaper.journal !== 'NA';
+          const hasYear = selectedPaper.year && selectedPaper.year !== 'NA';
 
-            <div style={{ marginBottom: 16 }}>
-              <Tag color="blue">{selectedPaper.keyword}</Tag>
-              {selectedPaper.source && <Tag>{selectedPaper.source}</Tag>}
-              {selectedPaper.year && <Tag>{selectedPaper.year}年</Tag>}
-              {selectedPaper.citation_count > 0 && (
-                <Tag color="orange">引用 {selectedPaper.citation_count}</Tag>
+          return (
+            <div style={{ lineHeight: 1.8 }}>
+              <h3 style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 18,
+                fontWeight: 700,
+                color: 'var(--color-ink)',
+                marginBottom: 16,
+              }}>
+                {title}
+              </h3>
+
+              {/* 标签 */}
+              <div style={{ marginBottom: 16 }}>
+                <Tag color="blue">{selectedPaper.keyword}</Tag>
+                {hasMeta && <Tag color="green">{selectedPaper.journal}</Tag>}
+                {hasYear && <Tag>{selectedPaper.year}年</Tag>}
+                {selectedPaper.citation_count > 0 && (
+                  <Tag color="orange">引用 {selectedPaper.citation_count}</Tag>
+                )}
+              </div>
+
+              {/* 作者 */}
+              <div style={{ marginBottom: 16, color: 'var(--color-ink-2)' }}>
+                <strong>作者：</strong>
+                {selectedPaper.authors?.join('、') || '未知'}
+              </div>
+
+              {/* 摘要 */}
+              <div style={{
+                background: 'var(--color-paper-3)',
+                padding: 16,
+                borderRadius: 'var(--radius-md)',
+                marginBottom: 16,
+              }}>
+                <div style={{ fontWeight: 700, marginBottom: 8, color: 'var(--color-ink)' }}>
+                  摘要
+                </div>
+                <div style={{ color: 'var(--color-ink-2)', textAlign: 'justify' }}>
+                  {selectedPaper.abstract || 'Google Scholar 未收录此论文摘要，请通过下方链接在学术平台查看。'}
+                </div>
+              </div>
+
+              {/* 原文链接 */}
+              {selectedPaper.url && (
+                <div style={{ fontSize: 13, color: 'var(--color-ink-3)', marginBottom: 12 }}>
+                  <strong>原文链接：</strong>
+                  <a
+                    href={selectedPaper.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: 'var(--color-accent)', marginLeft: 8 }}
+                  >
+                    {selectedPaper.url}
+                  </a>
+                </div>
               )}
-            </div>
 
-            <div style={{ marginBottom: 16, color: 'var(--ink-80)' }}>
-              <strong>作者：</strong>
-              {selectedPaper.authors?.join('、') || '未知'}
+              {/* 快捷搜索链接 */}
+              <div style={{
+                background: 'var(--color-paper-2)',
+                padding: 16,
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-line)',
+              }}>
+                <div style={{ fontWeight: 700, marginBottom: 12, color: 'var(--color-ink)' }}>
+                  在学术平台搜索此论文
+                </div>
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  <Button
+                    block
+                    icon={<SearchOutlined />}
+                    onClick={() => handleOpenUrl(cnkiUrl)}
+                  >
+                    在知网搜索（可下载全文）
+                  </Button>
+                  <Button
+                    block
+                    icon={<SearchOutlined />}
+                    onClick={() => handleOpenUrl(baiduUrl)}
+                  >
+                    在百度学术搜索
+                  </Button>
+                  <Button
+                    block
+                    icon={<SearchOutlined />}
+                    onClick={() => handleOpenUrl(gsUrl)}
+                  >
+                    在 Google Scholar 搜索
+                  </Button>
+                </Space>
+              </div>
             </div>
-
-            <div style={{
-              background: 'var(--bg-sunken)',
-              padding: 16,
-              borderRadius: 'var(--r-md)',
-              marginBottom: 16,
-            }}>
-              <div style={{ fontWeight: 700, marginBottom: 8, color: 'var(--ink-100)' }}>
-                摘要
-              </div>
-              <div style={{ color: 'var(--ink-80)', textAlign: 'justify' }}>
-                {selectedPaper.abstract || '暂无摘要'}
-              </div>
-            </div>
-
-            {selectedPaper.url && (
-              <div style={{ fontSize: 13, color: 'var(--ink-60)' }}>
-                <strong>原文链接：</strong>
-                <a
-                  href={selectedPaper.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: 'var(--vermilion)', marginLeft: 8 }}
-                >
-                  {selectedPaper.url}
-                </a>
-              </div>
-            )}
-          </div>
-        )}
+          );
+        })()}
       </Modal>
     </div>
   );

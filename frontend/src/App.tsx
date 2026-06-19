@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { MessageOutlined, NodeIndexOutlined, DatabaseOutlined, BookOutlined, AuditOutlined, CloudOutlined } from '@ant-design/icons';
 import { ChatProvider } from './contexts/ChatContext';
@@ -10,50 +9,7 @@ import WikiPage from './pages/WikiPage';
 import ReviewPage from './pages/ReviewPage';
 import CrawlPage from './pages/CrawlPage';
 
-/* ── 胶片颗粒 ── */
-function FilmGrain() {
-  return <div className="film-grain" />;
-}
-
-/* ── 暗角 ── */
-function Vignette() {
-  return <div className="vignette" />;
-}
-
-/* ── 漂浮粒子 ── */
-function Particles() {
-  const particles = useMemo(() => {
-    return Array.from({ length: 18 }, (_, i) => ({
-      id: i,
-      left: `${Math.random() * 100}%`,
-      size: 1.5 + Math.random() * 2.5,
-      duration: 18 + Math.random() * 24,
-      delay: Math.random() * 20,
-      opacity: 0.15 + Math.random() * 0.25,
-    }));
-  }, []);
-
-  return (
-    <div className="particles">
-      {particles.map((p) => (
-        <div
-          key={p.id}
-          className="particle"
-          style={{
-            left: p.left,
-            bottom: '-10px',
-            width: p.size,
-            height: p.size,
-            animationDuration: `${p.duration}s`,
-            animationDelay: `${p.delay}s`,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-/* ── 水墨山影 ── */
+/* ── 水墨山影 — 唯一的环境氛围层 ── */
 function InkLandscape() {
   return (
     <div className="ink-landscape">
@@ -62,29 +18,29 @@ function InkLandscape() {
         <path
           className="ink-layer"
           d="M0 180 L0 110 Q80 50 200 90 Q320 130 440 70 Q520 30 640 60 Q760 95 880 45 Q1000 0 1120 40 Q1240 75 1360 25 L1440 50 L1440 180 Z"
-          fill="#c5c0b6"
+          fill="oklch(78% 0.006 80)"
           opacity="0.35"
         />
         {/* 中山 */}
         <path
           className="ink-layer"
           d="M0 180 L0 130 Q140 80 300 115 Q460 145 620 95 Q780 50 940 85 Q1100 120 1260 70 Q1360 45 1440 75 L1440 180 Z"
-          fill="#b0aa9e"
+          fill="oklch(72% 0.006 80)"
           opacity="0.28"
         />
         {/* 近山 — 最深，几乎不动 */}
         <path
           className="ink-layer"
           d="M0 180 L0 150 Q200 115 400 140 Q600 160 800 130 Q1000 100 1200 125 Q1350 140 1440 120 L1440 180 Z"
-          fill="#9e9889"
+          fill="oklch(66% 0.006 80)"
           opacity="0.22"
         />
         {/* 底部渐变遮罩 */}
         <rect y="160" width="1440" height="20" fill="url(#fade-bottom)" />
         <defs>
           <linearGradient id="fade-bottom" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#f7f3ec" stopOpacity="0" />
-            <stop offset="100%" stopColor="#f7f3ec" stopOpacity="1" />
+            <stop offset="0%" stopColor="oklch(96% 0.006 80)" stopOpacity="0" />
+            <stop offset="100%" stopColor="oklch(96% 0.006 80)" stopOpacity="1" />
           </linearGradient>
         </defs>
       </svg>
@@ -136,11 +92,6 @@ function App() {
   return (
     <BrowserRouter>
       <ChatProvider>
-      {/* 电影质感层 */}
-      <FilmGrain />
-      <Vignette />
-      <Particles />
-
       {/* 主界面 */}
       <TopBar />
       <div className="main-content">

@@ -43,20 +43,18 @@ export default function DataPage() {
         {/* 统计 */}
         <StatsSection count={stats?.count} collectionName={stats?.collection_name} />
 
-        {/* 上传 */}
-        <UploadSection onSuccess={fetchStats} />
+        {/* 输入区：上传 + 入库 + 抽取 */}
+        <div className="data-section-group">
+          <UploadSection onSuccess={fetchStats} />
+          <IngestSection onSuccess={fetchStats} />
+          <ExtractSection />
+        </div>
 
-        {/* 批量入库 */}
-        <IngestSection onSuccess={fetchStats} />
-
-        {/* 批量知识抽取 */}
-        <ExtractSection />
-
-        {/* 已入库文件管理 */}
-        <IngestionFilesSection onRefresh={fetchStats} />
-
-        {/* 原始文件管理 */}
-        <RawFilesSection />
+        {/* 管理区：已入库 + 原始文件 */}
+        <div className="data-section-group">
+          <IngestionFilesSection onRefresh={fetchStats} />
+          <RawFilesSection />
+        </div>
       </div>
     </div>
   );

@@ -92,7 +92,7 @@ export default function SessionSidebar({ visible, onClose }: SessionSidebarProps
 
         <div className="session-sidebar-body">
           {sessions.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--ink-40)', fontSize: 13 }}>
+            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--color-ink-4)', fontSize: 13 }}>
               暂无历史对话
             </div>
           ) : (
@@ -156,8 +156,8 @@ export default function SessionSidebar({ visible, onClose }: SessionSidebarProps
             top: 0;
             bottom: 0;
             width: 320px;
-            background: var(--bg-surface);
-            border-left: 1px solid var(--border);
+            background: var(--color-paper-2);
+            border-left: 1px solid var(--color-rule);
             z-index: 950;
             display: flex;
             flex-direction: column;
@@ -174,7 +174,7 @@ export default function SessionSidebar({ visible, onClose }: SessionSidebarProps
             align-items: center;
             justify-content: space-between;
             padding: 12px 16px;
-            border-bottom: 1px solid var(--border);
+            border-bottom: 1px solid var(--color-rule);
             flex-shrink: 0;
           }
 
@@ -182,8 +182,8 @@ export default function SessionSidebar({ visible, onClose }: SessionSidebarProps
             display: flex;
             justify-content: space-around;
             padding: 10px 16px;
-            border-bottom: 1px solid var(--border-faint);
-            background: var(--bg-sunken);
+            border-bottom: 1px solid var(--color-rule-2);
+            background: var(--color-paper-3);
           }
 
           .session-stat {
@@ -197,12 +197,12 @@ export default function SessionSidebar({ visible, onClose }: SessionSidebarProps
             font-family: var(--font-display);
             font-size: 16px;
             font-weight: 700;
-            color: var(--ink-100);
+            color: var(--color-ink);
           }
 
           .session-stat-label {
             font-size: 11px;
-            color: var(--ink-40);
+            color: var(--color-ink-4);
           }
 
           .session-sidebar-body {
@@ -219,7 +219,7 @@ export default function SessionSidebar({ visible, onClose }: SessionSidebarProps
             font-family: var(--font-display);
             font-size: 11px;
             font-weight: 700;
-            color: var(--ink-40);
+            color: var(--color-ink-4);
             padding: 8px 16px 4px;
             letter-spacing: 1px;
           }
@@ -234,17 +234,17 @@ export default function SessionSidebar({ visible, onClose }: SessionSidebarProps
             border: none;
             cursor: pointer;
             text-align: left;
-            transition: background var(--t-fast);
-            color: var(--ink-60);
+            transition: background var(--dur-fast) var(--ease-out);
+            color: var(--color-ink-3);
           }
 
           .session-item:hover {
-            background: var(--bg-hover);
+            background: var(--color-paper-hover);
           }
 
           .session-item.active {
-            background: var(--vermilion-faint);
-            color: var(--vermilion);
+            background: var(--color-accent-bg);
+            color: var(--color-accent);
           }
 
           .session-item-content {
@@ -254,7 +254,7 @@ export default function SessionSidebar({ visible, onClose }: SessionSidebarProps
 
           .session-item-question {
             font-size: 13px;
-            color: var(--ink-80);
+            color: var(--color-ink-2);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -262,12 +262,12 @@ export default function SessionSidebar({ visible, onClose }: SessionSidebarProps
           }
 
           .session-item.active .session-item-question {
-            color: var(--vermilion);
+            color: var(--color-accent);
           }
 
           .session-item-meta {
             font-size: 11px;
-            color: var(--ink-40);
+            color: var(--color-ink-4);
             margin-top: 2px;
           }
 
@@ -280,9 +280,9 @@ export default function SessionSidebar({ visible, onClose }: SessionSidebarProps
             border: none;
             background: none;
             cursor: pointer;
-            color: var(--ink-40);
-            border-radius: var(--r-xs);
-            transition: all var(--t-fast);
+            color: var(--color-ink-4);
+            border-radius: var(--radius-xs);
+            transition: all var(--dur-fast) var(--ease-out);
             font-size: 12px;
             flex-shrink: 0;
             opacity: 0;
@@ -293,8 +293,8 @@ export default function SessionSidebar({ visible, onClose }: SessionSidebarProps
           }
 
           .session-delete-btn:hover {
-            color: var(--vermilion);
-            background: var(--vermilion-faint);
+            color: var(--color-accent);
+            background: var(--color-accent-bg);
           }
 
           .session-delete-btn:disabled {
