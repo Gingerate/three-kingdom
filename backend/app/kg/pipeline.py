@@ -220,6 +220,7 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
                    message=f"切分 [{doc.source_name}] {doc.source}: {len(chunks)} 块")
 
         update(message=f"共 {len(all_chunks)} 个文本块")
+        print(f"[pipeline] 切分完成，共 {len(all_chunks)} 个文本块，开始去重检查...", flush=True)
 
         # 3. 去重检查
         update(stage="去重检查", current=0, total=len(all_chunks),
@@ -249,6 +250,7 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
                        message=f"检查进度 {i + 1}/{len(all_chunks)}，新增 {len(new_chunks)}，跳过 {skipped}")
 
         update(message=f"去重完成：新增 {len(new_chunks)} 个文本块，跳过 {skipped} 个已存在文本块")
+        print(f"[pipeline] 去重完成，准备进入 embedding 步骤...", flush=True)
 
         if not new_chunks:
             update(done=True, message=f"没有新的文本块需要入库（共 {len(all_chunks)} 个，全部已存在）")
