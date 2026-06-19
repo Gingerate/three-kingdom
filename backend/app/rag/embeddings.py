@@ -42,9 +42,12 @@ class LocalHuggingFaceEmbeddings(Embeddings):
             from transformers import BertTokenizer
 
             logger.info(f"正在加载 embedding 模型: {self.model_path}")
+            print(f"[embedding] 开始加载模型: {self.model_path}", flush=True)
 
             # BertTokenizer 只需要 vocab.txt，不依赖 tokenizer_config.json
+            print("[embedding] 加载 tokenizer...", flush=True)
             self._tokenizer = BertTokenizer.from_pretrained(self.model_path)
+            print("[embedding] tokenizer 完成", flush=True)
 
             if self.quantize:
                 try:

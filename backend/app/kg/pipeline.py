@@ -266,23 +266,29 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
         from app.rag.embeddings import get_embeddings
         from app.rag.vectorstore import get_vectorstore, chunks_to_documents
 
+        print(f"[pipeline] 加载 embedding 模型...", flush=True)
         embeddings = get_embeddings()
+        print(f"[pipeline] embedding 模型加载完成", flush=True)
 
         # 5. 写入向量库
+        print(f"[pipeline] 获取向量库实例...", flush=True)
         vectorstore = get_vectorstore(embeddings)
         docs = chunks_to_documents(new_chunks)
+        print(f"[pipeline] 准备写入 {len(docs)} 个文档...", flush=True)
 
         batch_size = 100
         ingested = 0
 
         for i in range(0, len(docs), batch_size):
             batch = docs[i:i + batch_size]
+            print(f"[pipeline] 写入批次 {i//batch_size + 1}/{(len(docs)-1)//batch_size + 1}...", flush=True)
             vectorstore.add_documents(batch)
             ingested += len(batch)
 
             update(current=ingested, total=len(new_chunks),
                    message=f"Embedding {ingested}/{len(new_chunks)}")
 
+        print(f"[pipeline] 写入完成，记录去重信息...", flush=True)
         # 6. 记录去重信息（向量库写入成功后再记录，若此步失败重试仅产生重复，不会丢数据）
         add_records_batch(records_to_add)
         logger.info(f"已记录 {len(records_to_add)} 条去重信息")

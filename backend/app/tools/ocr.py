@@ -21,10 +21,8 @@ def _get_ocr():
         try:
             from paddleocr import PaddleOCR
             _ocr_instance = PaddleOCR(
-                use_angle_cls=True,  # 支持旋转文本
                 lang="ch",           # 中文识别
                 show_log=False,      # 不输出调试日志
-                use_gpu=False,       # CPU 模式（兼容性更好）
             )
             logger.info("PaddleOCR 初始化完成")
         except ImportError:
@@ -114,8 +112,8 @@ def ocr_pdf(filepath: str | Path) -> str:
 
         all_text = []
         for i, img in enumerate(images, 1):
-            # PaddleOCR 识别
-            result = ocr.ocr(img, cls=True)
+            # PaddleOCR 识别（v3.x API）
+            result = ocr.ocr(img)
             if result and result[0]:
                 # 提取文本，按置信度排序后拼接
                 page_lines = []
