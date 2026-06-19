@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from typing import TypedDict, Annotated
 from operator import add as add_messages
@@ -16,6 +17,132 @@ from app.prompts import load_prompt
 from app.utils.parsers import parse_llm_json
 
 logger = logging.getLogger(__name__)
+
+
+# ==================== 来源可信度分级 ====================
+
+# 史料等级映射（一级：正史，二级：演义，三级：野史）
+SOURCE_LEVELS = {
+    # 一级：正史
+    "三国志": 1, "后汉书": 1, "史记": 1, "资治通鉴": 1,
+    "汉书": 1, "晋书": 1, "三国志集解": 1, "后汉纪": 1,
+    "续汉书": 1, "两汉纪": 1,
+    # 二级：演义
+    "三国演义": 2,
+    # 三级：野史
+    "世说新语": 3, "搜神记": 3, "裴注": 3, "裴松之注": 3,
+    "风俗通义": 3, "魏书": 3, "吴书": 3, "蜀书": 3,
+    "献帝起居注": 3, "汉晋春秋": 3, "九州春秋": 3,
+    "英雄记": 3, "曹瞒传": 3, "江表传": 3,
+}
+
+SOURCE_LEVEL_NAMES = {1: "一级·正史", 2: "二级·演义", 3: "三级·野史"}
+
+
+def normalize_source_name(source: str) -> str:
+    """规范化来源名称，用于匹配比较
+
+    去除文件扩展名、出版社信息、译注者信息等，保留核心书名。
+    """
+    # 去除文件扩展名
+    source = re.sub(r'\.(txt|md|pdf|epub|docx|mobi)$', '', source, flags=re.IGNORECASE)
+
+    # 去除括号内的出版社、译注者信息
+    source = re.sub(r'\s*[\(（][^)）]*出版社[^)）]*[\)）]', '', source)
+    source = re.sub(r'\s*[\(（][^)）]*译注[^)）]*[\)）]', '', source)
+    source = re.sub(r'\s*[\(（][^)）]*点校[^)）]*[\)）]', '', source)
+    source = re.sub(r'\s*[\(（][^)）]*z-library[^)）]*[\)）]', '', source)
+    source = re.sub(r'\s*[\(（][^)）]*lib[^)）]*[\)）]', '', source)
+
+    # 去除"集解"、"全译本"等后缀
+    source = source.replace("集解", "").replace("全译本", "").replace("译注", "")
+
+    # 去除多余空格
+    source = source.strip()
+
+    return source
+
+
+def get_source_level(source_name: str) -> int:
+    """获取史料等级（1=正史，2=演义，3=野史，0=未知）"""
+    normalized = normalize_source_name(source_name)
+    for key, level in SOURCE_LEVELS.items():
+        if key in normalized or normalized in key:
+            return level
+    return 0  # 未知等级
+
+
+def extract_sources_from_answer(answer: str) -> list[str]:
+    """从回答中提取引用的史料名称
+
+    匹配模式：
+    - 《书名》
+    - 据《书名》记载
+    - 《书名·篇名》
+    """
+    # 匹配《》中的内容
+    pattern = r'[《]([^》]+)[》]'
+    matches = re.findall(pattern, answer)
+
+    # 提取书名（去掉篇名部分，如"三国志·武帝纪" -> "三国志"）
+    sources = []
+    for match in matches:
+        # 如果有·，取前面的书名
+        if '·' in match:
+            book_name = match.split('·')[0]
+        else:
+            book_name = match
+        if book_name and book_name not in sources:
+            sources.append(book_name)
+
+    return sources
+
+
+def classify_sources(rag_sources: list[str], answer_sources: list[str]) -> dict:
+    """对比 RAG 检索来源和回答中引用的来源，进行分类
+
+    Returns:
+        {
+            "rag_sources": [{"name": str, "level": int}],  # RAG 检索到的来源
+            "model_sources": [{"name": str, "level": int}],  # 模型补充的来源
+            "confidence": float,  # 可信度 (0-1)
+        }
+    """
+    # 规范化 RAG 来源
+    rag_normalized = set()
+    for src in rag_sources:
+        rag_normalized.add(normalize_source_name(src))
+
+    # 分类回答中的来源
+    rag_matched = []
+    model_sources = []
+
+    for src in answer_sources:
+        normalized = normalize_source_name(src)
+        # 检查是否在 RAG 来源中
+        is_rag = False
+        for rag_src in rag_normalized:
+            if normalized in rag_src or rag_src in normalized:
+                is_rag = True
+                break
+
+        level = get_source_level(src)
+        source_info = {"name": src, "level": level}
+
+        if is_rag:
+            rag_matched.append(source_info)
+        else:
+            model_sources.append(source_info)
+
+    # 计算可信度
+    total = len(rag_matched) + len(model_sources)
+    confidence = len(rag_matched) / total if total > 0 else 0.0
+
+    return {
+        "rag_sources": rag_matched,
+        "model_sources": model_sources,
+        "confidence": confidence,
+    }
 
 
 # ==================== 状态定义 ====================
@@ -403,15 +530,15 @@ def generate(state: RAGState) -> dict:
 
     # 构建上下文
     context_parts = []
-    sources = []
+    rag_sources = []  # RAG 检索到的原始来源（文件名）
     for i, doc in enumerate(state["graded_docs"], 1):
         source_info = f"[{doc['source']}"
         if doc.get("chapter"):
             source_info += f" - {doc['chapter']}"
         source_info += "]"
         context_parts.append(f"参考资料 {i} {source_info}：\n{doc['content']}")
-        if doc["source"] not in sources:
-            sources.append(doc["source"])
+        if doc["source"] not in rag_sources:
+            rag_sources.append(doc["source"])
 
     context = "\n\n".join(context_parts)
 
@@ -430,9 +557,45 @@ def generate(state: RAGState) -> dict:
         HumanMessage(content="请回答"),
     ])
 
+    # 从回答中提取引用的来源
+    answer_sources = extract_sources_from_answer(response.content)
+
+    # 对比 RAG 来源和回答来源，进行分类
+    source_classification = classify_sources(rag_sources, answer_sources)
+
+    # 构建最终的来源列表（带等级标注）
+    final_sources = []
+    for src in source_classification["rag_sources"]:
+        level_name = SOURCE_LEVEL_NAMES.get(src["level"], "未知")
+        final_sources.append(f"《{src['name']}》【{level_name}】")
+
+    for src in source_classification["model_sources"]:
+        level_name = SOURCE_LEVEL_NAMES.get(src["level"], "未知")
+        final_sources.append(f"《{src['name']}》【{level_name}】(非知识库)")
+
+    # 构建可信度说明
+    confidence = source_classification["confidence"]
+    confidence_stars = "⭐" * int(confidence * 5) + "☆" * (5 - int(confidence * 5))
+
+    rag_count = len(source_classification["rag_sources"])
+    model_count = len(source_classification["model_sources"])
+
+    # 添加可信度说明到回答末尾
+    confidence_section = f"""
+
+---
+📊 本回答可信度：{confidence_stars} ({int(confidence * 100)}%)
+- RAG 检索内容：{rag_count} 个来源
+- 模型补充内容：{model_count} 个来源（未验证）
+
+**主要参考来源：**
+{chr(10).join(final_sources)}"""
+
+    generation = response.content + confidence_section
+
     return {
-        "generation": response.content,
-        "sources": sources,
+        "generation": generation,
+        "sources": rag_sources,  # 仍然返回原始 RAG 来源用于记忆存储
     }
 
 
