@@ -196,14 +196,21 @@ def load_pdf_documents(raw_dir: str | None = None, files: list[str] | None = Non
 
     for filepath in pdf_paths:
         try:
+            content = ""
             with pdfplumber.open(filepath) as pdf:
                 text_parts = []
                 for page in pdf.pages:
                     page_text = page.extract_text()
                     if page_text:
                         text_parts.append(page_text)
-
                 content = "\n\n".join(text_parts)
+
+            # 如果 pdfplumber 提取不到文本，检测是否图片型 PDF → OCR fallback
+            if not content.strip():
+                from app.tools.ocr import is_image_pdf, ocr_pdf
+                if is_image_pdf(filepath):
+                    logger.info(f"检测到图片型 PDF，启用 OCR: {filepath.name}")
+                    content = ocr_pdf(filepath)
                 if not content.strip():
                     continue
 

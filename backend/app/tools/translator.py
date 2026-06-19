@@ -16,6 +16,7 @@ SUPPORTED_EXTENSIONS = {
     ".xml",            # XML
     ".epub",           # 电子书
     ".mobi",           # Kindle 电子书
+    ".caj",            # 知网 CAJ 格式
 }
 
 # 已经可以直接用的格式（无需转换）
@@ -76,6 +77,7 @@ def convert_to_md(source_path: str, output_dir: str | None = None) -> ConvertRes
         ".xml": _convert_xml,
         ".epub": _convert_epub,
         ".mobi": _convert_mobi,
+        ".caj": _convert_caj,
     }
 
     converter = converters.get(ext)
@@ -552,6 +554,46 @@ def _convert_mobi(src: Path) -> str:
         return _plain_text_to_md(content)
     finally:
         shutil.rmtree(tempdir, ignore_errors=True)
+
+
+def _convert_caj(src: Path) -> str:
+    """CAJ (知网) → Markdown（先转 PDF，再提取文本，最后 OCR fallback）"""
+    from app.tools.caj_converter import convert_caj_to_pdf
+
+    # Step 1: CAJ → PDF
+    pdf_path = convert_caj_to_pdf(str(src))
+    if not pdf_path:
+        raise RuntimeError(
+            f"CAJ 转换失败: {src.name}\n"
+            f"请确保已安装 caj2pdf: cd backend/tools && git clone https://github.com/JeziL/caj2pdf.git\n"
+            f"或手动将 CAJ 转为 PDF 后重新上传"
+        )
+
+    # Step 2: PDF 文本提取
+    try:
+        import pdfplumber
+    except ImportError:
+        raise RuntimeError("需要安装 pdfplumber: pip install pdfplumber")
+
+    text_parts = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text_parts.append(page_text)
+
+    content = "\n\n".join(text_parts)
+
+    # Step 3: 如果提取不到文本，尝试 OCR
+    if not content.strip():
+        from app.tools.ocr import is_image_pdf, ocr_pdf
+        if is_image_pdf(pdf_path):
+            content = ocr_pdf(pdf_path)
+
+    if not content.strip():
+        raise RuntimeError(f"CAJ 转换后无法提取文本: {src.name}")
+
+    return content
 
 
 # ==================== 工具函数 ====================

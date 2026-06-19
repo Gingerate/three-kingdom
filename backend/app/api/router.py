@@ -313,11 +313,14 @@ async def ingest_data(req: IngestRequest | None = None):
     force = req.force_reingest if req else False
     file_list = req.files if req else None
 
-    # 后台运行
+    # 后台运行（必须用 to_thread 避免阻塞事件循环）
     async def run_ingest():
         from app.kg.pipeline import process_and_ingest_with_progress
         try:
-            result = process_and_ingest_with_progress(task_id, clear_first=clear, force_reingest=force, files=file_list)
+            await asyncio.to_thread(
+                process_and_ingest_with_progress, task_id,
+                clear_first=clear, force_reingest=force, files=file_list,
+            )
             tracker.update(task_id, done=True, message="入库完成")
         except Exception as e:
             tracker.update(task_id, done=True, error=str(e))
@@ -891,7 +894,7 @@ async def delete_crawl_result(index: int):
 
 @api_router.post("/crawl/ingest/{index}")
 async def ingest_crawl_result(index: int):
-    """将指定索引的论文导入知识库（写入 raw/ + embedding + 写入向量库）"""
+    """将指定索引的论文导入知识库（下载 PDF → 解析正文 → 入库）"""
     import uuid
     import asyncio
     from pathlib import Path
@@ -910,21 +913,44 @@ async def ingest_crawl_result(index: int):
 
     paper = papers[index]
 
-    # 组装论文内容为 Markdown
+    # 检查是否有 PDF 链接
+    if not paper.pdf_url:
+        raise HTTPException(status_code=400, detail="该论文没有 PDF 下载链接")
+
+    # 生成安全文件名
+    safe_title = re.sub(r'[^\w\s-]', '', paper.title)[:50].strip()
+    if not safe_title:
+        safe_title = "untitled"
+
+    # 下载 PDF（已存在则跳过）
+    from app.crawler.downloader import download_pdf
+    try:
+        pdf_path = download_pdf(paper.pdf_url, filename=f"{safe_title}.pdf")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"PDF 下载失败: {e}")
+
+    # 解析 PDF 为 Markdown
+    from app.crawler.pdf_parser import parse_pdf_to_markdown, PDFParseError
+    try:
+        body_content = parse_pdf_to_markdown(pdf_path)
+    except PDFParseError as e:
+        raise HTTPException(status_code=422, detail=f"PDF 解析失败: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"PDF 解析失败: {e}")
+
+    # 组装元数据头 + 正文
     content = f"# {paper.title}\n\n"
     content += f"**作者**: {', '.join(paper.authors)}\n"
     content += f"**年份**: {paper.year}\n"
     content += f"**来源**: {paper.source}\n"
     content += f"**引用数**: {paper.citation_count}\n\n"
-    content += f"## 摘要\n\n{paper.abstract}\n"
+    content += f"## 摘要\n\n{paper.abstract}\n\n"
+    content += f"## 正文\n\n{body_content}\n"
 
     if paper.url:
         content += f"\n**原文链接**: {paper.url}\n"
 
     # 保存到 raw 目录
-    safe_title = re.sub(r'[^\w\s-]', '', paper.title)[:50].strip()
-    if not safe_title:
-        safe_title = "untitled"
     filename = f"paper_{safe_title}.md"
     filepath = Path(settings.raw_data_dir) / filename
     filepath.write_text(content, encoding="utf-8")
@@ -936,7 +962,7 @@ async def ingest_crawl_result(index: int):
     async def run_ingest():
         from app.kg.pipeline import process_and_ingest_with_progress
         try:
-            process_and_ingest_with_progress(task_id, files=[filename])
+            await asyncio.to_thread(process_and_ingest_with_progress, task_id, files=[filename])
             tracker.update(task_id, done=True, message="入库完成")
         except Exception as e:
             tracker.update(task_id, done=True, error=str(e))

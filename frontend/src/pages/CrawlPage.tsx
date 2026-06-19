@@ -121,7 +121,7 @@ export default function CrawlPage() {
       }
 
       const evtSource = new EventSource(`${API_BASE}/ingest/progress/${taskId}`);
-      message.loading({ content: '入库中...', key: 'ingest' });
+      message.loading({ content: '正在下载并解析 PDF...', key: 'ingest' });
 
       evtSource.onmessage = (event) => {
         if (event.data === '[DONE]') {
@@ -134,7 +134,10 @@ export default function CrawlPage() {
             evtSource.close();
             message.destroy('ingest');
             if (progress.error) {
-              message.error(`入库失败：${progress.error}`);
+              Modal.error({
+                title: '入库失败',
+                content: progress.error,
+              });
             } else {
               message.success('入库完成');
               loadResults();
@@ -150,8 +153,18 @@ export default function CrawlPage() {
         message.destroy('ingest');
         message.error('入库进度连接断开');
       };
-    } catch {
-      message.error('入库失败');
+    } catch (err: unknown) {
+      // 后端返回的错误（如 PDF 下载失败、解析失败）
+      const error = err as { response?: { data?: { detail?: string } } };
+      const detail = error?.response?.data?.detail;
+      if (detail) {
+        Modal.error({
+          title: '入库失败',
+          content: detail,
+        });
+      } else {
+        message.error('入库失败');
+      }
     }
   }, []);
 
@@ -237,14 +250,16 @@ export default function CrawlPage() {
               原文
             </Button>
           )}
-          <Popconfirm
-            title="确定导入此论文到知识库？"
-            onConfirm={() => handleIngest(record._originalIndex ?? 0)}
-          >
-            <Button size="small" icon={<ImportOutlined />}>
-              入库
-            </Button>
-          </Popconfirm>
+          {record.pdf_url && (
+            <Popconfirm
+              title="确定导入此论文到知识库？"
+              onConfirm={() => handleIngest(record._originalIndex ?? 0)}
+            >
+              <Button size="small" icon={<ImportOutlined />}>
+                入库
+              </Button>
+            </Popconfirm>
+          )}
           <Popconfirm
             title="确定删除此论文？"
             onConfirm={() => handleDelete(record._originalIndex ?? 0)}

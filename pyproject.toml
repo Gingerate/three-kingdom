@@ -46,6 +46,13 @@ converters = [
     "odfpy>=1.4.0",           # .odt
     "ebooklib>=0.18.0",       # .epub
 ]
+# OCR 支持（图片型 PDF 识别）
+ocr = [
+    "paddlepaddle>=2.5.0",    # PaddlePaddle 深度学习框架
+    "paddleocr>=2.7.0",       # PaddleOCR 文字识别
+    "pdf2image>=1.16.0",      # PDF 转图片
+    "Pillow>=10.0.0",         # 图像处理
+]
 
 [tool.uv.sources]
 torch = { path = "torch-2.12.0+cu130-cp313-cp313-win_amd64.whl" }

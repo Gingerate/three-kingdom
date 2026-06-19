@@ -10,7 +10,7 @@ from app.crawler.scholar import (
     save_search_results, load_search_results,
     PaperMetadata,
 )
-from app.crawler.downloader import batch_download_pdfs, parse_all_pdfs
+from app.crawler.downloader import batch_download_pdfs
 
 
 def crawl_and_ingest(
@@ -20,7 +20,7 @@ def crawl_and_ingest(
     skip_search: bool = False,
     results_file: str | None = None,
 ) -> dict:
-    """完整爬取管线：搜索 → 下载 PDF → 解析 → 切分 → embedding → 入库
+    """完整爬取管线：搜索 → 下载 PDF → 切分 → embedding → 入库
 
     Args:
         categories: 要搜索的类别列表，None 表示全部
@@ -57,7 +57,7 @@ def crawl_and_ingest(
         save_search_results(papers, results_path)
 
     if not papers:
-        return {"searched": 0, "downloaded": 0, "parsed": 0, "ingested": 0}
+        return {"searched": 0, "downloaded": 0, "ingested": 0}
 
     # ==================== 第 2 步：下载 PDF ====================
     if download_pdfs:
@@ -67,46 +67,21 @@ def crawl_and_ingest(
     else:
         print("\n跳过 PDF 下载")
 
-    # ==================== 第 3 步：解析 PDF ====================
+    # ==================== 第 3 步：加载 + 切分 + 入库 ====================
     print("\n" + "=" * 50)
-    print("第 3 步：解析 PDF")
-    parsed = parse_all_pdfs()
-    print(f"解析了 {len(parsed)} 个 PDF 文件")
+    print("第 3 步：加载文档 → 切分 → embedding → 入库")
 
-    # ==================== 第 4 步：加载 + 切分 + 入库 ====================
-    print("\n" + "=" * 50)
-    print("第 4 步：加载文档 → 切分 → embedding → 入库")
-
-    # 只加载本次爬取产生的文档，不加载 raw 目录的其他文件
-    from app.kg.corpus_import import load_all_documents
     from app.kg.text_splitter import split_document
 
-    # 从 processed 目录加载（主要是 scholar_results.json/.md）
-    documents = load_all_documents(str(processed_dir))
-
-    # 如果下载了 PDF，也加载本次爬取的 PDF 解析结果
-    if parsed:
-        import re
-        # 用论文标题构建文件名过滤集合
-        crawled_titles = set()
-        for p in papers:
-            safe = re.sub(r'[^\w\s-]', '', p.title)[:50].strip()
-            if safe:
-                crawled_titles.add(safe.lower())
-        # 加载 raw 目录中匹配本次爬取的文档
-        raw_docs = load_all_documents()
-        for doc in raw_docs:
-            doc_name_lower = doc.source.lower()
-            if any(t in doc_name_lower for t in crawled_titles):
-                if doc.source not in {d.source for d in documents}:
-                    documents.append(doc)
+    # 加载所有文档（文本 + PDF，含质量门禁）
+    from app.kg.corpus_import import load_all_documents
+    documents = load_all_documents()
 
     if not documents:
         print("没有找到可处理的文档")
         return {
             "searched": len(papers),
-            "downloaded": len(parsed),
-            "parsed": len(parsed),
+            "downloaded": 0,
             "ingested": 0,
         }
 
@@ -119,12 +94,12 @@ def crawl_and_ingest(
 
     # 使用带去重的入库
     from app.rag.vectorstore import add_chunks_to_vectorstore
-    from app.rag.embeddings import LocalHuggingFaceEmbeddings
+    from app.rag.embeddings import get_embeddings
     from app.core.database import init_db
     from app.kg.dedup import calculate_chunk_hash, is_chunk_exists, add_records_batch
 
     init_db()
-    embeddings = LocalHuggingFaceEmbeddings()
+    embeddings = get_embeddings()
 
     # 去重过滤
     new_chunks = []
@@ -148,8 +123,7 @@ def crawl_and_ingest(
         print("所有文本块已存在，跳过入库")
         return {
             "searched": len(papers),
-            "downloaded": len(parsed),
-            "parsed": len(parsed),
+            "downloaded": 0,
             "ingested": 0,
             "skipped": skipped,
         }
@@ -160,15 +134,13 @@ def crawl_and_ingest(
     print(f"\n{'='*50}")
     print(f"管线完成！")
     print(f"  搜索论文: {len(papers)} 篇")
-    print(f"  解析 PDF: {len(parsed)} 个")
     print(f"  文本块: {len(all_chunks)} 个")
     print(f"  新增入库: {ingested} 条")
     print(f"  跳过重复: {skipped} 条")
 
     return {
         "searched": len(papers),
-        "downloaded": len(parsed),
-        "parsed": len(parsed),
+        "downloaded": 0,
         "ingested": ingested,
         "skipped": skipped,
     }

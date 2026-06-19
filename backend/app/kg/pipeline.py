@@ -54,15 +54,12 @@ def process_and_ingest(raw_dir: str | None = None,
             cleanup_all()
             logger.info("已同步清空去重记录")
 
-        # 1. 加载所有文档
+        # 1. 加载文档（如果指定了 files，只加载指定文件，不全量扫描）
         logger.info("=" * 50)
         logger.info("第 1 步：加载原始文档")
-        documents = load_all_documents(raw_dir)
+        documents = load_all_documents(raw_dir, files=files)
 
-        # 按 files 过滤（如果指定了文件列表）
         if files:
-            files_set = set(files)
-            documents = [d for d in documents if d.source in files_set]
             logger.info(f"指定入库 {len(files)} 个文件，匹配到 {len(documents)} 个文档")
         else:
             logger.info(f"共找到 {len(documents)} 个文档")
@@ -120,8 +117,8 @@ def process_and_ingest(raw_dir: str | None = None,
         # 4. Embedding + 入库
         logger.info("=" * 50)
         logger.info("第 4 步：Embedding + 写入向量库")
-        from app.rag.embeddings import LocalHuggingFaceEmbeddings
-        embeddings = LocalHuggingFaceEmbeddings(quantize=quantize)
+        from app.rag.embeddings import get_embeddings
+        embeddings = get_embeddings()
 
         ingested = add_chunks_to_vectorstore(new_chunks, embeddings)
         logger.info(f"成功写入 {ingested} 条到向量库")
@@ -266,10 +263,10 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
         # 4. Embedding + 入库（带进度）
         update(stage="Embedding", current=0, total=len(new_chunks),
                message="加载 embedding 模型...")
-        from app.rag.embeddings import LocalHuggingFaceEmbeddings
+        from app.rag.embeddings import get_embeddings
         from app.rag.vectorstore import get_vectorstore, chunks_to_documents
 
-        embeddings = LocalHuggingFaceEmbeddings(quantize=quantize)
+        embeddings = get_embeddings()
 
         # 5. 写入向量库
         vectorstore = get_vectorstore(embeddings)
