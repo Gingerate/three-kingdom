@@ -311,15 +311,23 @@ export default function SessionSidebar({ visible, onClose }: SessionSidebarProps
 function groupByDate(sessions: SessionInfo[]): [string, SessionInfo[]][] {
   const groups = new Map<string, SessionInfo[]>();
   const now = new Date();
-  const today = now.toDateString();
-  const yesterday = new Date(now.getTime() - 86400000).toDateString();
+
+  // 使用本地日期（年-月-日）进行比较，避免 toDateString() 的时区问题
+  const toLocalDateStr = (d: Date) => {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const todayStr = toLocalDateStr(now);
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = toLocalDateStr(yesterday);
 
   for (const s of sessions) {
     const d = new Date(s.last_active);
-    const ds = d.toDateString();
+    const ds = toLocalDateStr(d);
     let label: string;
-    if (ds === today) label = '今天';
-    else if (ds === yesterday) label = '昨天';
+    if (ds === todayStr) label = '今天';
+    else if (ds === yesterdayStr) label = '昨天';
     else label = d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
 
     if (!groups.has(label)) groups.set(label, []);

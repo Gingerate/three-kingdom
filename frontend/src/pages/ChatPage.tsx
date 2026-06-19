@@ -31,10 +31,11 @@ const THREE_KINGDOMS_QUOTES = [
   { text: '非淡泊无以明志，非宁静无以致远。', author: '诸葛亮' },
 ];
 
-// 获取当日固定的名言（每天刷新一次）
+// 获取当日固定的名言（每天刷新一次，使用时间戳计算避免溢出）
 function getDailyQuote() {
   const today = new Date();
-  const dayIndex = today.getFullYear() * 366 + today.getMonth() * 31 + today.getDate();
+  // 使用 epoch 天数（UTC），确保跨时区一致且无溢出风险
+  const dayIndex = Math.floor(today.getTime() / 86400000);
   return THREE_KINGDOMS_QUOTES[dayIndex % THREE_KINGDOMS_QUOTES.length];
 }
 

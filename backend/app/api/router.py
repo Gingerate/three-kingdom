@@ -53,7 +53,6 @@ async def health_check():
 @api_router.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
     """流式智能问答（Agentic RAG，逐节点输出进度）"""
-    import asyncio
     from app.rag.agent import run_rag_stream
     from app.rag.memory import remember_conversation
 
@@ -127,7 +126,6 @@ async def get_session_stats():
 @api_router.get("/health")
 async def health_check():
     """系统健康检查"""
-    import os
     from pathlib import Path
     from app.core.config import settings
 
@@ -285,7 +283,6 @@ class WikiDistillRequest(BaseModel):
 @api_router.post("/wiki/distill")
 async def distill_wiki(req: WikiDistillRequest):
     """从知识摘要 distill 出 Wiki 页面"""
-    import asyncio
     from app.rag.wiki import distill_and_save
     # 在线程池中执行，避免 LLM 调用阻塞事件循环
     return await asyncio.to_thread(distill_and_save, session_ids=req.session_ids, topic=req.topic)
@@ -304,7 +301,6 @@ class IngestRequest(BaseModel):
 async def ingest_data(req: IngestRequest | None = None):
     """触发语料入库流程（加载 raw/ 目录 → 切分 → embedding → Chroma）"""
     import uuid
-    import asyncio
     from app.core.progress import tracker
 
     task_id = str(uuid.uuid4())[:8]
@@ -397,7 +393,6 @@ async def get_stats():
 @api_router.get("/ingestion/files")
 async def get_ingestion_files():
     """获取已入库文件列表和 chunk 数量"""
-    import asyncio
     from app.kg.dedup import get_all_files
     files = await asyncio.to_thread(get_all_files)
     return {"files": files}
@@ -483,7 +478,6 @@ async def cleanup_duplicates():
 @api_router.get("/files")
 async def list_raw_files():
     """获取 raw/ 目录下的文件列表（4 种状态：待转换/可入库/已入库/不支持）"""
-    import asyncio
     from pathlib import Path
     from app.core.config import settings
     from app.tools.translator import SUPPORTED_EXTENSIONS
@@ -512,8 +506,8 @@ async def list_raw_files():
             else:
                 status = "unsupported"
 
-            # 已入库检测：精确匹配文件名（去后缀）
-            if status == "ready" and filepath.stem in ingested_names:
+            # 已入库检测：精确匹配文件名（含扩展名，与 source_file 格式一致）
+            if status == "ready" and filepath.name in ingested_names:
                 status = "ingested"
 
             files.append({
@@ -699,7 +693,6 @@ async def extract_knowledge(req: ExtractRequest):
 @api_router.post("/extract/batch")
 async def extract_batch():
     """批量抽取：对 raw/ 目录下所有语料做知识抽取，结果进入审核队列"""
-    import asyncio
     from app.core.progress import tracker
 
     task_id = str(uuid.uuid4())[:8]
@@ -812,7 +805,6 @@ class CrawlRequest(BaseModel):
 @api_router.post("/crawl")
 async def crawl_papers(req: CrawlRequest):
     """启动论文爬取管线（搜索 → 下载 → 解析 → 入库）"""
-    import asyncio
     from app.crawler.pipeline import crawl_and_ingest
     # 在线程池中执行，避免同步阻塞事件循环
     result = await asyncio.to_thread(
@@ -834,7 +826,6 @@ async def list_keywords():
 @api_router.get("/crawl/results")
 async def get_crawl_results():
     """获取已有的爬取结果"""
-    import asyncio
     from pathlib import Path
     from app.core.config import settings
     from app.crawler.scholar import load_search_results
@@ -896,7 +887,6 @@ async def delete_crawl_result(index: int):
 async def ingest_crawl_result(index: int):
     """将指定索引的论文导入知识库（下载 PDF → 解析正文 → 入库）"""
     import uuid
-    import asyncio
     from pathlib import Path
     from app.core.config import settings
     from app.core.progress import tracker
@@ -928,6 +918,9 @@ async def ingest_crawl_result(index: int):
         pdf_path = download_pdf(paper.pdf_url, filename=f"{safe_title}.pdf")
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"PDF 下载失败: {e}")
+
+    if not pdf_path:
+        raise HTTPException(status_code=422, detail="PDF 下载失败：返回的内容不是有效的 PDF 文件")
 
     # 解析 PDF 为 Markdown
     from app.crawler.pdf_parser import parse_pdf_to_markdown, PDFParseError

@@ -6,27 +6,31 @@
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# 全局 PaddleOCR 实例（延迟初始化，避免重复加载模型）
+# 全局 PaddleOCR 实例（延迟初始化，线程安全）
 _ocr_instance = None
+_ocr_lock = threading.Lock()
 
 
 def _get_ocr():
-    """获取 PaddleOCR 单例（延迟初始化）"""
+    """获取 PaddleOCR 单例（延迟初始化，线程安全）"""
     global _ocr_instance
     if _ocr_instance is None:
-        try:
-            from paddleocr import PaddleOCR
-            _ocr_instance = PaddleOCR(
-                lang="ch",           # 中文识别
-            )
-            logger.info("PaddleOCR 初始化完成")
-        except ImportError:
-            logger.error("PaddleOCR 未安装，请运行: pip install paddlepaddle paddleocr")
-            raise
+        with _ocr_lock:
+            if _ocr_instance is None:
+                try:
+                    from paddleocr import PaddleOCR
+                    _ocr_instance = PaddleOCR(
+                        lang="ch",           # 中文识别
+                    )
+                    logger.info("PaddleOCR 初始化完成")
+                except ImportError:
+                    logger.error("PaddleOCR 未安装，请运行: pip install paddlepaddle paddleocr")
+                    raise
     return _ocr_instance
 
 

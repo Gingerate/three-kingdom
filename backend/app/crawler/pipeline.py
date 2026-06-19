@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from app.core.config import settings
@@ -11,6 +12,8 @@ from app.crawler.scholar import (
     PaperMetadata,
 )
 from app.crawler.downloader import batch_download_pdfs
+
+logger = logging.getLogger(__name__)
 
 
 def crawl_and_ingest(
@@ -37,11 +40,11 @@ def crawl_and_ingest(
 
     # ==================== 第 1 步：搜索 ====================
     if skip_search and results_file:
-        print(f"跳过搜索，加载已有结果: {results_file}")
+        logger.info(f"跳过搜索，加载已有结果: {results_file}")
         papers = load_search_results(results_file)
     else:
-        print("=" * 50)
-        print("第 1 步：Google Scholar 搜索")
+        logger.info("=" * 50)
+        logger.info("第 1 步：Google Scholar 搜索")
 
         if categories:
             all_papers = []
@@ -61,15 +64,15 @@ def crawl_and_ingest(
 
     # ==================== 第 2 步：下载 PDF ====================
     if download_pdfs:
-        print("\n" + "=" * 50)
-        print("第 2 步：下载 PDF")
+        logger.info("=" * 50)
+        logger.info("第 2 步：下载 PDF")
         papers = batch_download_pdfs(papers)
     else:
-        print("\n跳过 PDF 下载")
+        logger.info("跳过 PDF 下载")
 
     # ==================== 第 3 步：加载 + 切分 + 入库 ====================
-    print("\n" + "=" * 50)
-    print("第 3 步：加载文档 → 切分 → embedding → 入库")
+    logger.info("=" * 50)
+    logger.info("第 3 步：加载文档 → 切分 → embedding → 入库")
 
     from app.kg.text_splitter import split_document
 
@@ -78,7 +81,7 @@ def crawl_and_ingest(
     documents = load_all_documents()
 
     if not documents:
-        print("没有找到可处理的文档")
+        logger.info("没有找到可处理的文档")
         return {
             "searched": len(papers),
             "downloaded": 0,
@@ -90,7 +93,7 @@ def crawl_and_ingest(
         chunks = split_document(doc.content, doc.source, doc.category)
         all_chunks.extend(chunks)
 
-    print(f"共 {len(all_chunks)} 个文本块，开始 embedding...")
+    logger.info(f"共 {len(all_chunks)} 个文本块，开始 embedding...")
 
     # 使用带去重的入库
     from app.rag.vectorstore import add_chunks_to_vectorstore
@@ -120,7 +123,7 @@ def crawl_and_ingest(
         })
 
     if not new_chunks:
-        print("所有文本块已存在，跳过入库")
+        logger.info("所有文本块已存在，跳过入库")
         return {
             "searched": len(papers),
             "downloaded": 0,
@@ -131,12 +134,12 @@ def crawl_and_ingest(
     ingested = add_chunks_to_vectorstore(new_chunks, embeddings)
     add_records_batch(records_to_add)
 
-    print(f"\n{'='*50}")
-    print(f"管线完成！")
-    print(f"  搜索论文: {len(papers)} 篇")
-    print(f"  文本块: {len(all_chunks)} 个")
-    print(f"  新增入库: {ingested} 条")
-    print(f"  跳过重复: {skipped} 条")
+    logger.info("=" * 50)
+    logger.info("管线完成！")
+    logger.info(f"  搜索论文: {len(papers)} 篇")
+    logger.info(f"  文本块: {len(all_chunks)} 个")
+    logger.info(f"  新增入库: {ingested} 条")
+    logger.info(f"  跳过重复: {skipped} 条")
 
     return {
         "searched": len(papers),

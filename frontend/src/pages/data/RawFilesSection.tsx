@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Button, Table, Popconfirm, Input, Select, Space, Tag, Drawer, message } from 'antd';
 import {
   FileTextOutlined,
@@ -50,9 +50,17 @@ export default function RawFilesSection() {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [batchConverting, setBatchConverting] = useState(false);
   const [batchIngesting, setBatchIngesting] = useState(false);
+  const evtSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     fetchFiles();
+    // 组件卸载时关闭所有 SSE 连接
+    return () => {
+      if (evtSourceRef.current) {
+        evtSourceRef.current.close();
+        evtSourceRef.current = null;
+      }
+    };
   }, []);
 
   const fetchFiles = async () => {
@@ -96,16 +104,19 @@ export default function RawFilesSection() {
         // 监听 SSE 进度
         const taskId = data.task_id;
         const evtSource = new EventSource(`${API_BASE}/ingest/progress/${taskId}`);
+        evtSourceRef.current = evtSource;
 
         evtSource.onmessage = (event) => {
           if (event.data === '[DONE]') {
             evtSource.close();
+            evtSourceRef.current = null;
             return;
           }
           try {
             const progress = JSON.parse(event.data);
             if (progress.done) {
               evtSource.close();
+              evtSourceRef.current = null;
               if (progress.error) {
                 message.error(`入库失败：${progress.error}`);
               } else {
@@ -120,6 +131,7 @@ export default function RawFilesSection() {
 
         evtSource.onerror = () => {
           evtSource.close();
+          evtSourceRef.current = null;
           message.error('入库进度连接断开');
         };
       })
@@ -223,16 +235,23 @@ export default function RawFilesSection() {
       // 监听 SSE 进度
       const taskId = data.task_id;
       const evtSource = new EventSource(`${API_BASE}/ingest/progress/${taskId}`);
+      evtSourceRef.current = evtSource;
 
       evtSource.onmessage = (event) => {
         if (event.data === '[DONE]') {
           evtSource.close();
+          evtSourceRef.current = null;
+          setSelectedKeys([]);
+          setBatchIngesting(false);
           return;
         }
         try {
           const progress = JSON.parse(event.data);
           if (progress.done) {
             evtSource.close();
+            evtSourceRef.current = null;
+            setSelectedKeys([]);
+            setBatchIngesting(false);
             if (progress.error) {
               message.error(`入库失败：${progress.error}`);
             } else {
@@ -247,15 +266,17 @@ export default function RawFilesSection() {
 
       evtSource.onerror = () => {
         evtSource.close();
+        evtSourceRef.current = null;
+        setSelectedKeys([]);
+        setBatchIngesting(false);
         message.error('入库进度连接断开');
       };
     } catch {
       taskMessage();
+      setSelectedKeys([]);
+      setBatchIngesting(false);
       message.error('入库任务提交失败');
     }
-
-    setSelectedKeys([]);
-    setBatchIngesting(false);
   };
 
   // 快捷选择：全选符合指定状态的文件（跨页生效）

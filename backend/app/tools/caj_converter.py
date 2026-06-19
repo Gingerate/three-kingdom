@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ def convert_caj_to_pdf(caj_path: str | Path, output_dir: str | Path | None = Non
     try:
         logger.info(f"使用 caj2pdf 转换: {caj_path.name}")
         result = subprocess.run(
-            ["python", str(script), "convert", str(caj_path), "-o", str(pdf_path)],
+            [sys.executable, str(script), "convert", str(caj_path), "-o", str(pdf_path)],
             capture_output=True,
             text=True,
             timeout=120,
