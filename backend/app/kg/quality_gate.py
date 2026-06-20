@@ -177,7 +177,8 @@ def validate_document(content: str, filename: str = "") -> ValidationResult:
             details.append(f"重复内容占比 {duplicate_ratio:.1%}，偏高")
 
     # 检测常见转换错误标记
-    error_markers = ['[ERROR]', '[FAILED]', '???', 'Conversion failed']
+    # 注意：'???' 过于通用，正常文本中也可能出现（如乱码残留），不作为错误标记
+    error_markers = ['[ERROR]', '[FAILED]', 'Conversion failed']
     for marker in error_markers:
         if marker.lower() in content.lower():
             return ValidationResult(
