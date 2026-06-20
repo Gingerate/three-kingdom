@@ -28,14 +28,34 @@ def detect_source(filename: str) -> tuple[str, str]:
     """根据文件名推断来源和分类"""
     name = filename.lower()
 
+    # 正史（一级）
     if "三国志" in name or "sgz" in name:
         return "三国志", "正史"
-    elif "三国演义" in name or "sgyy" in name or "演义" in name:
-        return "三国演义", "演义"
     elif "后汉书" in name:
         return "后汉书", "正史"
+    elif "史记" in name:
+        return "史记", "正史"
     elif "资治通鉴" in name:
         return "资治通鉴", "正史"
+    elif "两汉纪" in name or "后汉纪" in name:
+        return "两汉纪", "正史"
+    elif "汉书" in name:
+        return "汉书", "正史"
+    elif "晋书" in name:
+        return "晋书", "正史"
+    elif "裴注" in name or "裴松之" in name:
+        return "裴松之注", "正史"
+    # 演义（二级）
+    elif "三国演义" in name or "sgyy" in name or "演义" in name:
+        return "三国演义", "演义"
+    # 野史（三级）
+    elif "世说新语" in name:
+        return "世说新语", "野史"
+    elif "搜神记" in name:
+        return "搜神记", "野史"
+    elif "风俗通义" in name:
+        return "风俗通义", "野史"
+    # 论文
     elif "论文" in name or "paper" in name:
         return f"论文_{filename}", "论文"
     else:

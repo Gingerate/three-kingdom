@@ -26,11 +26,11 @@ SOURCE_LEVELS = {
     # 一级：正史
     "三国志": 1, "后汉书": 1, "史记": 1, "资治通鉴": 1,
     "汉书": 1, "晋书": 1, "三国志集解": 1, "后汉纪": 1,
-    "续汉书": 1, "两汉纪": 1,
+    "续汉书": 1, "两汉纪": 1, "裴注": 1, "裴松之注": 1,
     # 二级：演义
     "三国演义": 2,
     # 三级：野史
-    "世说新语": 3, "搜神记": 3, "裴注": 3, "裴松之注": 3,
+    "世说新语": 3, "搜神记": 3,
     "风俗通义": 3, "魏书": 3, "吴书": 3, "蜀书": 3,
     "献帝起居注": 3, "汉晋春秋": 3, "九州春秋": 3,
     "英雄记": 3, "曹瞒传": 3, "江表传": 3,
@@ -119,12 +119,29 @@ def classify_sources(rag_sources: list[str], answer_sources: list[str]) -> dict:
 
     for src in answer_sources:
         normalized = normalize_source_name(src)
-        # 检查是否在 RAG 来源中
+        # 检查是否在 RAG 来源中（要求完整匹配或以分隔符开头/结尾，避免"魏书"误匹配"后魏书"）
         is_rag = False
         for rag_src in rag_normalized:
-            if normalized in rag_src or rag_src in normalized:
+            if normalized == rag_src:
                 is_rag = True
                 break
+            # 子串匹配时，边界必须是书名号、分隔符或字符串首尾
+            if normalized in rag_src:
+                idx = rag_src.index(normalized)
+                end = idx + len(normalized)
+                before_ok = (idx == 0 or rag_src[idx - 1] in ('·', '—', '-', ' '))
+                after_ok = (end == len(rag_src) or rag_src[end] in ('·', '—', '-', ' '))
+                if before_ok and after_ok:
+                    is_rag = True
+                    break
+            elif rag_src in normalized:
+                idx = normalized.index(rag_src)
+                end = idx + len(rag_src)
+                before_ok = (idx == 0 or normalized[idx - 1] in ('·', '—', '-', ' '))
+                after_ok = (end == len(normalized) or normalized[end] in ('·', '—', '-', ' '))
+                if before_ok and after_ok:
+                    is_rag = True
+                    break
 
         level = get_source_level(src)
         source_info = {"name": src, "level": level}
@@ -134,9 +151,12 @@ def classify_sources(rag_sources: list[str], answer_sources: list[str]) -> dict:
         else:
             model_sources.append(source_info)
 
-    # 计算可信度
-    total = len(rag_matched) + len(model_sources)
-    confidence = len(rag_matched) / total if total > 0 else 0.0
+    # 计算加权可信度（一级来源权重更高）
+    weights = {1: 1.0, 2: 0.6, 3: 0.3, 0: 0.1}
+    rag_weight = sum(weights.get(s["level"], 0.1) for s in rag_matched)
+    model_weight = sum(weights.get(s["level"], 0.1) for s in model_sources)
+    total_weight = rag_weight + model_weight
+    confidence = rag_weight / total_weight if total_weight > 0 else 1.0  # 无额外来源时默认可信
 
     return {
         "rag_sources": rag_matched,

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Input, Select, Spin, Drawer, Descriptions, Tag, Empty, Button, message } from 'antd';
-import { SearchOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Input, Select, Slider, Spin, Drawer, Descriptions, Tag, Empty, Button, message, Progress } from 'antd';
+import { SearchOutlined, ReloadOutlined, BarChartOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { Graph } from '@antv/g6';
-import { getGraph, searchGraph, getEntityDetail, getCoverage, type GraphData } from '../services/api';
+import { getGraph, searchGraph, getEntityDetail, getCoverage, getDetailedCoverage, getTimeline, type GraphData, type DetailedCoverage } from '../services/api';
 
 const { Search } = Input;
 
@@ -69,6 +69,11 @@ export default function GraphPage() {
     wiki_pages: number;
     knowledge_summaries: number;
   } | null>(null);
+  const [detailedCoverage, setDetailedCoverage] = useState<DetailedCoverage | null>(null);
+  const [showCoverage, setShowCoverage] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [yearRange, setYearRange] = useState<[number, number]>([184, 280]);
+  const [timelineLoading, setTimelineLoading] = useState(false);
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
@@ -80,6 +85,20 @@ export default function GraphPage() {
       message.error('加载图谱失败，请确保后端已启动');
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const handleTimelineChange = useCallback(async (value: [number, number]) => {
+    setYearRange(value);
+    setTimelineLoading(true);
+    try {
+      const data = await getTimeline(value[0], value[1]);
+      setGraphData(data);
+      renderGraph(data);
+    } catch {
+      message.error('时间轴筛选失败');
+    } finally {
+      setTimelineLoading(false);
     }
   }, []);
 
@@ -188,6 +207,7 @@ export default function GraphPage() {
   useEffect(() => {
     loadGraph();
     getCoverage().then(setCoverage).catch(() => {});
+    getDetailedCoverage().then(setDetailedCoverage).catch(() => {});
     return () => {
       if (graphRef.current) {
         graphRef.current.destroy();
@@ -274,6 +294,16 @@ export default function GraphPage() {
           enterButton={<SearchOutlined />}
         />
         <Button icon={<ReloadOutlined />} onClick={loadGraph} />
+        <Button
+          icon={<ClockCircleOutlined />}
+          onClick={() => setShowTimeline(!showTimeline)}
+          type={showTimeline ? 'primary' : 'default'}
+        />
+        <Button
+          icon={<BarChartOutlined />}
+          onClick={() => setShowCoverage(!showCoverage)}
+          type={showCoverage ? 'primary' : 'default'}
+        />
       </div>
 
       {/* 统计卡片 */}
@@ -314,6 +344,133 @@ export default function GraphPage() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* 时间轴 */}
+      {showTimeline && (
+        <div className="timeline-panel">
+          <div className="timeline-header">
+            <ClockCircleOutlined style={{ color: 'var(--color-accent)' }} />
+            <span className="timeline-label">时间轴</span>
+            <span className="timeline-range">
+              {yearRange[0]} 年 — {yearRange[1]} 年
+            </span>
+            {timelineLoading && <Spin size="small" />}
+          </div>
+          <Slider
+            range
+            min={184}
+            max={280}
+            value={yearRange}
+            onChange={(v) => setYearRange(v as [number, number])}
+            onChangeComplete={handleTimelineChange}
+            marks={{
+              184: '184 黄巾',
+              190: '190 讨董',
+              200: '200 官渡',
+              208: '208 赤壁',
+              220: '220 三国',
+              263: '263 蜀亡',
+              280: '280 统一',
+            }}
+            tooltip={{ formatter: (v) => `${v} 年` }}
+          />
+        </div>
+      )}
+
+      {/* 信源覆盖度仪表盘 */}
+      {showCoverage && detailedCoverage && (
+        <div className="coverage-dashboard">
+          <div className="coverage-section">
+            <h4>信源状态</h4>
+            <div className="coverage-sources">
+              {detailedCoverage.sources.map((src) => (
+                <div key={src.name} className={`coverage-source-item ${src.status}`}>
+                  <div className="coverage-source-header">
+                    <Tag color={src.level === 1 ? 'green' : src.level === 2 ? 'orange' : 'default'}>
+                      {src.level_name}
+                    </Tag>
+                    <span className="coverage-source-name">{src.name}</span>
+                    <span className="coverage-source-chunks">
+                      {src.chunks > 0 ? `${src.chunks} 段` : '未入库'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="coverage-section">
+            <h4>实体字段完整率</h4>
+            <div className="coverage-fields">
+              {detailedCoverage.entities.persons.total > 0 && (
+                <>
+                  <div className="coverage-field-row">
+                    <span>人物·生年</span>
+                    <Progress
+                      percent={Math.round(detailedCoverage.entities.persons.with_birth_year / detailedCoverage.entities.persons.total * 100)}
+                      size="small"
+                      strokeColor="var(--color-accent)"
+                    />
+                  </div>
+                  <div className="coverage-field-row">
+                    <span>人物·卒年</span>
+                    <Progress
+                      percent={Math.round(detailedCoverage.entities.persons.with_death_year / detailedCoverage.entities.persons.total * 100)}
+                      size="small"
+                      strokeColor="var(--color-accent)"
+                    />
+                  </div>
+                  <div className="coverage-field-row">
+                    <span>人物·籍贯</span>
+                    <Progress
+                      percent={Math.round(detailedCoverage.entities.persons.with_origin / detailedCoverage.entities.persons.total * 100)}
+                      size="small"
+                      strokeColor="var(--color-accent)"
+                    />
+                  </div>
+                  <div className="coverage-field-row">
+                    <span>人物·描述</span>
+                    <Progress
+                      percent={Math.round(detailedCoverage.entities.persons.with_description / detailedCoverage.entities.persons.total * 100)}
+                      size="small"
+                      strokeColor="var(--color-accent)"
+                    />
+                  </div>
+                </>
+              )}
+              {detailedCoverage.entities.events.total > 0 && (
+                <>
+                  <div className="coverage-field-row">
+                    <span>事件·年份</span>
+                    <Progress
+                      percent={Math.round(detailedCoverage.entities.events.with_year / detailedCoverage.entities.events.total * 100)}
+                      size="small"
+                      strokeColor="var(--color-green)"
+                    />
+                  </div>
+                  <div className="coverage-field-row">
+                    <span>事件·描述</span>
+                    <Progress
+                      percent={Math.round(detailedCoverage.entities.events.with_description / detailedCoverage.entities.events.total * 100)}
+                      size="small"
+                      strokeColor="var(--color-green)"
+                    />
+                  </div>
+                </>
+              )}
+              {detailedCoverage.entities.forces.total > 0 && (
+                <div className="coverage-field-row">
+                  <span>势力·时期</span>
+                  <Progress
+                    percent={Math.round(detailedCoverage.entities.forces.with_period / detailedCoverage.entities.forces.total * 100)}
+                    size="small"
+                    strokeColor="var(--color-bronze)"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

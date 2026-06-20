@@ -914,6 +914,129 @@ body {
   background: var(--color-rule);
 }
 
+/* 时间轴 */
+.timeline-panel {
+  padding: var(--space-sm) var(--space-md) var(--space-md);
+  background: var(--color-paper-2);
+  border-bottom: 1px solid var(--color-rule-2);
+  flex-shrink: 0;
+}
+
+.timeline-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.timeline-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-ink-2);
+}
+
+.timeline-range {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.timeline-panel .ant-slider {
+  margin-top: 4px;
+}
+
+.timeline-panel .ant-slider-mark-text {
+  font-size: 10px;
+  color: var(--color-ink-4);
+}
+
+/* 信源覆盖度仪表盘 */
+.coverage-dashboard {
+  display: flex;
+  gap: var(--space-lg);
+  padding: var(--space-md);
+  background: var(--color-paper-2);
+  border-bottom: 1px solid var(--color-rule-2);
+  flex-shrink: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.coverage-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.coverage-section h4 {
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
+  margin: 0 0 var(--space-sm) 0;
+  font-weight: 600;
+}
+
+.coverage-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.coverage-source-item {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: var(--text-xs);
+  border: 1px solid var(--color-rule);
+}
+
+.coverage-source-item.active {
+  background: var(--color-paper);
+  border-color: var(--color-green);
+}
+
+.coverage-source-item.missing {
+  background: var(--color-paper-2);
+  border-color: var(--color-rule);
+  opacity: 0.6;
+}
+
+.coverage-source-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.coverage-source-name {
+  font-weight: 500;
+  color: var(--color-ink);
+}
+
+.coverage-source-chunks {
+  color: var(--color-ink-4);
+  font-size: 11px;
+}
+
+.coverage-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.coverage-field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.coverage-field-row span:first-child {
+  font-size: var(--text-xs);
+  color: var(--color-ink-3);
+  min-width: 64px;
+}
+
+.coverage-field-row .ant-progress {
+  flex: 1;
+}
+
 /* ============================================
    数据页面分区
    ============================================ */

@@ -168,6 +168,105 @@ async def get_source_coverage():
     return get_source_coverage()
 
 
+@api_router.get("/coverage/detailed")
+async def get_detailed_coverage():
+    """获取详细信源覆盖度：各信源 chunk 数量 + 实体字段完整率"""
+    from app.core.database import get_connection
+    from app.rag.vectorstore import get_vectorstore
+
+    # 1. 从 Chroma 获取各 source 的 chunk 数量
+    source_chunks: dict[str, int] = {}
+    try:
+        vectorstore = get_vectorstore()
+        collection = vectorstore._collection
+        # 获取所有文档的 source 元数据
+        all_docs = collection.get(include=["metadatas"])
+        if all_docs and all_docs.get("metadatas"):
+            for meta in all_docs["metadatas"]:
+                src = meta.get("source", "未知")
+                # 规范化来源名：去掉路径前缀和扩展名
+                src_base = src.split("/")[-1].split("\\")[-1]
+                src_base = re.sub(r'\.(txt|md|pdf|epub|docx|mobi)$', '', src_base, flags=re.IGNORECASE)
+                source_chunks[src_base] = source_chunks.get(src_base, 0) + 1
+    except Exception as e:
+        logger.warning(f"获取向量库统计失败: {e}")
+
+    # 2. 从 SQLite 获取实体字段完整率
+    with get_connection() as conn:
+        persons_total = conn.execute("SELECT COUNT(*) FROM persons").fetchone()[0]
+        persons_with_birth = conn.execute("SELECT COUNT(*) FROM persons WHERE birth_year != '' AND birth_year IS NOT NULL").fetchone()[0]
+        persons_with_death = conn.execute("SELECT COUNT(*) FROM persons WHERE death_year != '' AND death_year IS NOT NULL").fetchone()[0]
+        persons_with_origin = conn.execute("SELECT COUNT(*) FROM persons WHERE origin != '' AND origin IS NOT NULL").fetchone()[0]
+        persons_with_desc = conn.execute("SELECT COUNT(*) FROM persons WHERE description != '' AND description IS NOT NULL").fetchone()[0]
+
+        events_total = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        events_with_year = conn.execute("SELECT COUNT(*) FROM events WHERE year != '' AND year IS NOT NULL").fetchone()[0]
+        events_with_desc = conn.execute("SELECT COUNT(*) FROM events WHERE description != '' AND description IS NOT NULL").fetchone()[0]
+
+        forces_total = conn.execute("SELECT COUNT(*) FROM forces").fetchone()[0]
+        forces_with_period = conn.execute("SELECT COUNT(*) FROM forces WHERE period != '' AND period IS NOT NULL").fetchone()[0]
+
+        relations_total = conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0]
+
+    # 3. 理想信源清单（项目应覆盖的文献）
+    expected_sources = [
+        {"name": "三国志", "level": 1, "category": "正史"},
+        {"name": "后汉书", "level": 1, "category": "正史"},
+        {"name": "史记", "level": 1, "category": "正史"},
+        {"name": "资治通鉴", "level": 1, "category": "正史"},
+        {"name": "两汉纪", "level": 1, "category": "正史"},
+        {"name": "汉书", "level": 1, "category": "正史"},
+        {"name": "晋书", "level": 1, "category": "正史"},
+        {"name": "裴松之注", "level": 1, "category": "正史"},
+        {"name": "三国演义", "level": 2, "category": "演义"},
+        {"name": "世说新语", "level": 3, "category": "野史"},
+        {"name": "搜神记", "level": 3, "category": "野史"},
+        {"name": "风俗通义", "level": 3, "category": "野史"},
+    ]
+
+    # 匹配 chunk 数量到信源清单
+    sources_status = []
+    for src in expected_sources:
+        # 模糊匹配：检查 source_chunks 的 key 是否包含信源名
+        chunk_count = 0
+        for key, count in source_chunks.items():
+            if src["name"] in key or key in src["name"]:
+                chunk_count += count
+        status = "active" if chunk_count > 0 else "missing"
+        sources_status.append({
+            "name": src["name"],
+            "level": src["level"],
+            "level_name": f"一级·正史" if src["level"] == 1 else f"二级·演义" if src["level"] == 2 else f"三级·野史",
+            "category": src["category"],
+            "chunks": chunk_count,
+            "status": status,
+        })
+
+    return {
+        "sources": sources_status,
+        "source_chunks": source_chunks,
+        "entities": {
+            "persons": {
+                "total": persons_total,
+                "with_birth_year": persons_with_birth,
+                "with_death_year": persons_with_death,
+                "with_origin": persons_with_origin,
+                "with_description": persons_with_desc,
+            },
+            "events": {
+                "total": events_total,
+                "with_year": events_with_year,
+                "with_description": events_with_desc,
+            },
+            "forces": {
+                "total": forces_total,
+                "with_period": forces_with_period,
+            },
+        },
+        "relations": relations_total,
+    }
+
+
 @api_router.get("/sessions/{session_id}")
 async def get_session_history(session_id: str):
     """获取指定会话的对话历史"""
@@ -506,8 +605,9 @@ async def list_raw_files():
             else:
                 status = "unsupported"
 
-            # 已入库检测：精确匹配文件名（含扩展名，与 source_file 格式一致）
-            if status == "ready" and filepath.name in ingested_names:
+            # 已入库检测：用相对路径匹配（与 source_file 格式一致）
+            relative_path = str(filepath.relative_to(raw_dir))
+            if status == "ready" and relative_path in ingested_names:
                 status = "ingested"
 
             files.append({
@@ -1010,6 +1110,123 @@ async def get_graph():
                     "description": rel.get("description", ""),
                 },
             })
+
+    return {"nodes": nodes, "edges": edges}
+
+
+@api_router.get("/graph/timeline")
+async def get_graph_timeline(
+    start_year: int = Query(..., description="起始年份（公元）"),
+    end_year: int = Query(..., description="结束年份（公元）"),
+):
+    """按时间范围筛选知识图谱数据"""
+    from app.core.database import get_connection
+    from app.utils.year_parser import parse_year
+
+    with get_connection() as conn:
+        # 筛选人物：生年或卒年与范围有交集
+        persons = conn.execute(
+            """SELECT * FROM persons WHERE
+               (birth_year != '' AND birth_year IS NOT NULL) OR
+               (death_year != '' AND death_year IS NOT NULL)"""
+        ).fetchall()
+
+        filtered_persons = []
+        for p in persons:
+            p_dict = dict(p)
+            birth = parse_year(p_dict.get("birth_year"))
+            death = parse_year(p_dict.get("death_year"))
+            # 人物生命周期与查询范围有交集
+            if birth is not None and death is not None:
+                if birth <= end_year and death >= start_year:
+                    filtered_persons.append(p_dict)
+            elif birth is not None:
+                if birth <= end_year:
+                    filtered_persons.append(p_dict)
+            elif death is not None:
+                if death >= start_year:
+                    filtered_persons.append(p_dict)
+
+        # 筛选事件：年份在范围内
+        events = conn.execute(
+            "SELECT * FROM events WHERE year != '' AND year IS NOT NULL"
+        ).fetchall()
+
+        filtered_events = []
+        for e in events:
+            e_dict = dict(e)
+            year = parse_year(e_dict.get("year"))
+            if year is not None and start_year <= year <= end_year:
+                filtered_events.append(e_dict)
+
+        # 筛选势力：period 与范围有交集（尝试解析范围）
+        forces = conn.execute(
+            "SELECT * FROM forces WHERE period != '' AND period IS NOT NULL"
+        ).fetchall()
+
+        filtered_forces = []
+        for f in forces:
+            f_dict = dict(f)
+            period = f_dict.get("period", "")
+            # 尝试从 period 中提取年份范围
+            import re
+            m = re.search(r'(\d{1,4})\s*[-~—–至到]\s*(\d{1,4})', period)
+            if m:
+                p_start, p_end = int(m.group(1)), int(m.group(2))
+                if p_start <= end_year and p_end >= start_year:
+                    filtered_forces.append(f_dict)
+            else:
+                # 无法解析范围，包含所有有 period 的势力
+                filtered_forces.append(f_dict)
+
+        # 构建 ID 集合，用于筛选关系
+        person_ids = {f"person_{p['id']}" for p in filtered_persons}
+        event_ids = {f"event_{e['id']}" for e in filtered_events}
+        force_ids = {f"force_{f['id']}" for f in filtered_forces}
+        all_node_ids = person_ids | event_ids | force_ids
+
+        # 构建节点
+        nodes = []
+        id_map: dict[str, dict] = {}
+        for p in filtered_persons:
+            node_id = f"person_{p['id']}"
+            nodes.append({
+                "id": node_id,
+                "data": {"label": p["name"], "type": "person", "description": p.get("description", "")},
+            })
+            id_map[f"person:{p['id']}"] = {"id": node_id}
+
+        for e in filtered_events:
+            node_id = f"event_{e['id']}"
+            nodes.append({
+                "id": node_id,
+                "data": {"label": e["name"], "type": "event", "description": e.get("description", "")},
+            })
+            id_map[f"event:{e['id']}"] = {"id": node_id}
+
+        for f in filtered_forces:
+            node_id = f"force_{f['id']}"
+            nodes.append({
+                "id": node_id,
+                "data": {"label": f["name"], "type": "force", "description": f.get("description", "")},
+            })
+            id_map[f"force:{f['id']}"] = {"id": node_id}
+
+        # 筛选关系：两端实体都在筛选结果中
+        all_relations = conn.execute("SELECT * FROM relations").fetchall()
+        edges = []
+        for rel in all_relations:
+            src_key = f"{rel['source_type']}:{rel['source_id']}"
+            tgt_key = f"{rel['target_type']}:{rel['target_id']}"
+            if src_key in id_map and tgt_key in id_map:
+                edges.append({
+                    "source": id_map[src_key]["id"],
+                    "target": id_map[tgt_key]["id"],
+                    "data": {
+                        "label": rel["relation_type"],
+                        "description": rel.get("description", ""),
+                    },
+                })
 
     return {"nodes": nodes, "edges": edges}
 

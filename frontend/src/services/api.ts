@@ -271,6 +271,10 @@ export async function getEntityDetail(
   return request(`/graph/entity/${entityType}/${entityId}`);
 }
 
+export async function getTimeline(startYear: number, endYear: number): Promise<GraphData> {
+  return request(`/graph/timeline?start_year=${startYear}&end_year=${endYear}`);
+}
+
 // ==================== 知识抽取 ====================
 
 export interface ExtractResponse {
@@ -350,6 +354,30 @@ export async function getCoverage(): Promise<{
   knowledge_summaries: number;
 }> {
   return request('/coverage');
+}
+
+export interface SourceStatus {
+  name: string;
+  level: number;
+  level_name: string;
+  category: string;
+  chunks: number;
+  status: 'active' | 'missing';
+}
+
+export interface DetailedCoverage {
+  sources: SourceStatus[];
+  source_chunks: Record<string, number>;
+  entities: {
+    persons: { total: number; with_birth_year: number; with_death_year: number; with_origin: number; with_description: number };
+    events: { total: number; with_year: number; with_description: number };
+    forces: { total: number; with_period: number };
+  };
+  relations: number;
+}
+
+export async function getDetailedCoverage(): Promise<DetailedCoverage> {
+  return request('/coverage/detailed');
 }
 
 // ==================== 论文爬虫 ====================
