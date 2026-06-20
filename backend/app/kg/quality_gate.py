@@ -176,15 +176,26 @@ def validate_document(content: str, filename: str = "") -> ValidationResult:
         if duplicate_ratio > 0.3:
             details.append(f"重复内容占比 {duplicate_ratio:.1%}，偏高")
 
-    # 检测常见转换错误标记
-    # 注意：'???' 过于通用，正常文本中也可能出现（如乱码残留），不作为错误标记
-    error_markers = ['[ERROR]', '[FAILED]', 'Conversion failed']
-    for marker in error_markers:
+    # 检测转换错误标记（双层体系，可通过 .env 配置）
+    # 硬标记：出现即阻断（如 [ERROR]、[FAILED] 等转换工具明确产生的错误标记）
+    hard_markers = [m.strip() for m in settings.quality_hard_markers.split(",") if m.strip()]
+    for marker in hard_markers:
         if marker.lower() in content.lower():
             return ValidationResult(
                 level=ValidationLevel.BLOCK,
                 message=f"检测到转换错误标记: {marker}",
                 details=["格式转换过程中出现错误"],
+            )
+
+    # 软标记：超过阈值才阻断（如 ??? 可能在正常文本中偶尔出现，大量出现才说明有问题）
+    soft_markers = [m.strip() for m in settings.quality_soft_markers.split(",") if m.strip()]
+    for marker in soft_markers:
+        count = content.lower().count(marker.lower())
+        if count >= settings.quality_soft_threshold:
+            return ValidationResult(
+                level=ValidationLevel.BLOCK,
+                message=f"检测到异常标记: {marker}（出现 {count} 次，阈值 {settings.quality_soft_threshold}）",
+                details=["大量异常标记可能表示转换错误或文本损坏"],
             )
 
     # ==================== 最终判定 ====================

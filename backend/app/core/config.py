@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     chunk_overlap: int = 50
     agentic_split: bool = False  # 是否启用 LLM 语义分块（批量入库时建议关闭，逐篇精切时再开启）
 
+    # Quality Gate
+    quality_hard_markers: str = "[ERROR],[FAILED],Conversion failed"  # 硬标记：出现即阻断（逗号分隔）
+    quality_soft_markers: str = "???"  # 软标记：超过阈值才阻断（逗号分隔）
+    quality_soft_threshold: int = 5  # 软标记阻断阈值（出现次数 >= 此值才阻断）
+
     # API
     api_host: str = "0.0.0.0"
     api_port: int = 8000
