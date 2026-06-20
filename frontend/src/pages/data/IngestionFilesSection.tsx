@@ -19,17 +19,18 @@ interface IngestionFile {
 
 interface IngestionFilesSectionProps {
   onRefresh?: () => void;
+  refreshKey?: number;  // 父组件递增此值触发重新加载
 }
 
 /** 已入库文件管理区域 */
-export default function IngestionFilesSection({ onRefresh }: IngestionFilesSectionProps) {
+export default function IngestionFilesSection({ onRefresh, refreshKey }: IngestionFilesSectionProps) {
   const [files, setFiles] = useState<IngestionFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
 
   useEffect(() => {
     fetchFiles();
-  }, []);
+  }, [refreshKey]);
 
   const fetchFiles = async () => {
     setLoading(true);

@@ -13,6 +13,7 @@ import {
 
 export default function DataPage() {
   const [stats, setStats] = useState<{ count: number; collection_name: string } | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     fetchStats();
@@ -27,13 +28,19 @@ export default function DataPage() {
     }
   };
 
+  /** 刷新统计 + 触发子组件重新加载 */
+  const handleRefresh = () => {
+    fetchStats();
+    setRefreshKey(k => k + 1);
+  };
+
   return (
     <div className="page-shell">
       {/* 顶栏 */}
       <div className="page-header">
         <span className="page-header-title">数据管理</span>
         <div className="page-header-spacer" />
-        <Button icon={<SyncOutlined />} onClick={fetchStats} size="small">
+        <Button icon={<SyncOutlined />} onClick={handleRefresh} size="small">
           刷新
         </Button>
       </div>
@@ -45,15 +52,15 @@ export default function DataPage() {
 
         {/* 输入区：上传 + 入库 + 抽取 */}
         <div className="data-section-group">
-          <UploadSection onSuccess={fetchStats} />
-          <IngestSection onSuccess={fetchStats} />
+          <UploadSection onSuccess={handleRefresh} />
+          <IngestSection onSuccess={handleRefresh} />
           <ExtractSection />
         </div>
 
         {/* 管理区：已入库 + 原始文件 */}
         <div className="data-section-group">
-          <IngestionFilesSection onRefresh={fetchStats} />
-          <RawFilesSection />
+          <IngestionFilesSection onRefresh={handleRefresh} refreshKey={refreshKey} />
+          <RawFilesSection onRefresh={handleRefresh} />
         </div>
       </div>
     </div>

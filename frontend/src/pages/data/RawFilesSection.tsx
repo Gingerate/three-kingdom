@@ -36,8 +36,12 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   unsupported: { label: '不支持', color: 'default' },
 };
 
+interface RawFilesSectionProps {
+  onRefresh?: () => void;
+}
+
 /** 原始文件管理区域 */
-export default function RawFilesSection() {
+export default function RawFilesSection({ onRefresh }: RawFilesSectionProps) {
   const [files, setFiles] = useState<RawFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [fileSearch, setFileSearch] = useState('');
@@ -122,6 +126,7 @@ export default function RawFilesSection() {
               } else {
                 message.success('入库完成');
                 fetchFiles();
+                onRefresh?.();
               }
             }
           } catch {
@@ -139,7 +144,7 @@ export default function RawFilesSection() {
         taskMessage();
         message.error('入库任务提交失败');
       });
-  }, []);
+  }, [onRefresh]);
 
   const handleDeleteRawFile = async (filepath: string) => {
     try {
@@ -257,6 +262,7 @@ export default function RawFilesSection() {
             } else {
               message.success(`批量入库完成，共 ${ingestibleFiles.length} 个文件`);
               fetchFiles();
+              onRefresh?.();
             }
           }
         } catch {
