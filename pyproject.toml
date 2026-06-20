@@ -45,6 +45,7 @@ converters = [
     "striprtf>=0.0.26",       # .rtf
     "odfpy>=1.4.0",           # .odt
     "ebooklib>=0.18.0",       # .epub
+    "mobi>=0.3.0",            # .mobi (Kindle)
 ]
 # OCR 支持（图片型 PDF 识别）
 ocr = [
