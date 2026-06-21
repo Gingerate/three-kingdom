@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Input, Button, Tag, Divider } from 'antd';
 import { SendOutlined, LinkOutlined, PlusOutlined, DownloadOutlined, HistoryOutlined, CopyOutlined, CheckOutlined, LikeOutlined, DislikeOutlined, LikeFilled, DislikeFilled } from '@ant-design/icons';
 import { useChat } from '../contexts/ChatContext';
@@ -50,7 +50,14 @@ export default function ChatPage() {
   const historyIdxRef = useRef(-1);
   const savedInputRef = useRef('');
 
-  // 智能滚动：只在用户已经在底部附近时自动滚动
+  // 页面挂载或重新挂载时（切换页面回来），立即滚动到底部
+  useLayoutEffect(() => {
+    if (messages.length > 0) {
+      endRef.current?.scrollIntoView();
+    }
+  }, []);
+
+  // 智能滚动：只在用户已经在底部附近时自动滚动（流式生成时）
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -264,6 +271,7 @@ export default function ChatPage() {
                   <ChatPipelineProgress
                     completedNodes={msg.completedNodes}
                     currentNode={msg.currentNode}
+                    retryCount={msg.retryCount}
                   />
                 )}
                 <div style={{ whiteSpace: 'pre-wrap' }}>

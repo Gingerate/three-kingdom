@@ -10,6 +10,7 @@ export interface Message {
   isStreaming?: boolean;
   completedNodes?: string[];
   currentNode?: string;
+  retryCount?: number;       // 反思重试轮数（0=首次，1=第1轮重试，2=第2轮重试）
   timestamp?: number;
 }
 
@@ -92,7 +93,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         // 追踪管线节点进度
         const pipelineNodes = ['router', 'decompose', 'retrieve', 'grade', 'generate', 'reflect'];
-        if (pipelineNodes.includes(node)) {
+        if (node === 'increment_retry') {
+          // 反思未通过，触发重试：递增轮数，重置进度到 retrieve
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated.length - 1;
+            if (last >= 0 && updated[last].role === 'assistant') {
+              const msg = { ...updated[last] };
+              msg.retryCount = (msg.retryCount || 0) + 1;
+              msg.completedNodes = ['router', 'decompose'];
+              msg.currentNode = 'retrieve';
+              updated[last] = msg;
+            }
+            return updated;
+          });
+        } else if (pipelineNodes.includes(node)) {
           setMessages((prev) => {
             const updated = [...prev];
             const last = updated.length - 1;

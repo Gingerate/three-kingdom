@@ -87,3 +87,4 @@ htmlcov/
 
 # Python 版本文件
 .python-version
+backend/tools/caj2pdf

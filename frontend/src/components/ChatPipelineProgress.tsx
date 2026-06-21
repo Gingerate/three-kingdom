@@ -1,4 +1,4 @@
-import { CheckOutlined } from '@ant-design/icons';
+import { CheckOutlined, ReloadOutlined } from '@ant-design/icons';
 
 interface PipelineStep {
   key: string;
@@ -17,10 +17,11 @@ const PIPELINE_STEPS: PipelineStep[] = [
 interface ChatPipelineProgressProps {
   completedNodes?: string[];
   currentNode?: string;
+  retryCount?: number;
 }
 
 /** 聊天管线进度条 —— 水墨风格节点指示器 */
-export default function ChatPipelineProgress({ completedNodes = [], currentNode }: ChatPipelineProgressProps) {
+export default function ChatPipelineProgress({ completedNodes = [], currentNode, retryCount = 0 }: ChatPipelineProgressProps) {
   return (
     <div className="pipeline-progress">
       {PIPELINE_STEPS.map((step, i) => {
@@ -46,6 +47,13 @@ export default function ChatPipelineProgress({ completedNodes = [], currentNode 
             <span className={`pipeline-label ${isActive ? 'active' : ''}`}>
               {step.label}
             </span>
+            {/* 审查节点：显示重试轮次 */}
+            {step.key === 'reflect' && retryCount > 0 && (
+              <span className="pipeline-retry">
+                <ReloadOutlined className="pipeline-retry-icon" />
+                第{retryCount + 1}轮
+              </span>
+            )}
           </div>
         );
       })}
@@ -139,6 +147,30 @@ export default function ChatPipelineProgress({ completedNodes = [], currentNode 
         @keyframes dot-pulse {
           0%, 100% { transform: scale(1); opacity: 1; }
           50% { transform: scale(1.4); opacity: 0.7; }
+        }
+
+        .pipeline-retry {
+          display: inline-flex;
+          align-items: center;
+          gap: 2px;
+          margin-left: 4px;
+          padding: 1px 6px;
+          border-radius: 8px;
+          background: var(--color-accent-bg);
+          font-family: var(--font-display);
+          font-size: 10px;
+          color: var(--color-accent);
+          white-space: nowrap;
+        }
+
+        .pipeline-retry-icon {
+          font-size: 9px;
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
       `}</style>
     </div>

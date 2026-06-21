@@ -1,0 +1,211 @@
+{
+  "version": "1.0",
+  "description": "三国历史知识库 RAG 评测基准（25 题）",
+  "categories": {
+    "factual": "事实型 —— 有明确标准答案",
+    "analytical": "分析型 —— 需要多角度论述",
+    "comparative": "对比型 —— 需要比较分析"
+  },
+  "questions": [
+    {
+      "id": 1,
+      "category": "factual",
+      "question": "诸葛亮字什么？",
+      "expected_answer": "孔明",
+      "expected_sources": ["三国志"],
+      "key_points": ["字孔明"]
+    },
+    {
+      "id": 2,
+      "category": "factual",
+      "question": "赤壁之战发生在哪一年？",
+      "expected_answer": "建安十三年（208年）",
+      "expected_sources": ["三国志", "资治通鉴"],
+      "key_points": ["208年", "建安十三年"]
+    },
+    {
+      "id": 3,
+      "category": "factual",
+      "question": "曹操的字是什么？他是哪里人？",
+      "expected_answer": "字孟德，沛国谯县（今安徽亳州）人",
+      "expected_sources": ["三国志"],
+      "key_points": ["字孟德", "沛国谯县", "亳州"]
+    },
+    {
+      "id": 4,
+      "category": "factual",
+      "question": "刘备称帝是在哪一年？国号是什么？",
+      "expected_answer": "221年称帝，国号汉（蜀汉）",
+      "expected_sources": ["三国志"],
+      "key_points": ["221年", "国号汉"]
+    },
+    {
+      "id": 5,
+      "category": "factual",
+      "question": "官渡之战的交战双方是谁？结果如何？",
+      "expected_answer": "曹操与袁绍交战，曹操以少胜多获胜",
+      "expected_sources": ["三国志", "资治通鉴"],
+      "key_points": ["曹操", "袁绍", "曹操获胜", "以少胜多"]
+    },
+    {
+      "id": 6,
+      "category": "factual",
+      "question": "关羽被东吴擒杀是在哪一年？",
+      "expected_answer": "建安二十四年（219年）",
+      "expected_sources": ["三国志"],
+      "key_points": ["219年", "建安二十四年"]
+    },
+    {
+      "id": 7,
+      "category": "factual",
+      "question": "三国时期的\"五虎上将\"指的是哪五个人？",
+      "expected_answer": "关羽、张飞、赵云、马超、黄忠",
+      "expected_sources": ["三国志", "三国演义"],
+      "key_points": ["关羽", "张飞", "赵云", "马超", "黄忠"]
+    },
+    {
+      "id": 8,
+      "category": "factual",
+      "question": "《出师表》是诸葛亮写给谁的？",
+      "expected_answer": "写给后主刘禅",
+      "expected_sources": ["三国志"],
+      "key_points": ["刘禅", "后主"]
+    },
+    {
+      "id": 9,
+      "category": "factual",
+      "question": "孙权建立吴国，定都在哪里？",
+      "expected_answer": "建业（今南京）",
+      "expected_sources": ["三国志"],
+      "key_points": ["建业", "南京"]
+    },
+    {
+      "id": 10,
+      "category": "factual",
+      "question": "司马懿发动高平陵之变是在哪一年？",
+      "expected_answer": "正始十年（249年）",
+      "expected_sources": ["三国志", "晋书", "资治通鉴"],
+      "key_points": ["249年", "正始十年"]
+    },
+    {
+      "id": 11,
+      "category": "analytical",
+      "question": "曹操为什么能在官渡之战中以少胜多击败袁绍？",
+      "expected_answer": null,
+      "expected_sources": ["三国志", "资治通鉴"],
+      "key_points": ["奇袭乌巢", "袁绍内部不和", "曹操善用人才", "战略得当"]
+    },
+    {
+      "id": 12,
+      "category": "analytical",
+      "question": "诸葛亮北伐为何未能成功？",
+      "expected_answer": null,
+      "expected_sources": ["三国志"],
+      "key_points": ["粮草不继", "国力差距", "对手强大", "地理限制", "人才匮乏"]
+    },
+    {
+      "id": 13,
+      "category": "analytical",
+      "question": "刘备集团能够建立蜀汉政权的关键因素有哪些？",
+      "expected_answer": null,
+      "expected_sources": ["三国志"],
+      "key_points": ["三顾茅庐", "诸葛亮辅佐", "荆州为基", "益州地利", "仁德声望"]
+    },
+    {
+      "id": 14,
+      "category": "analytical",
+      "question": "东汉末年群雄割据局面形成的原因是什么？",
+      "expected_answer": null,
+      "expected_sources": ["后汉书", "三国志", "资治通鉴"],
+      "key_points": ["黄巾之乱", "宦官外戚之争", "中央权力衰落", "地方军阀崛起"]
+    },
+    {
+      "id": 15,
+      "category": "analytical",
+      "question": "赤壁之战对三国鼎立格局的形成有什么重要意义？",
+      "expected_answer": null,
+      "expected_sources": ["三国志", "资治通鉴"],
+      "key_points": ["阻止曹操统一", "三分天下", "孙刘联盟", "鼎立格局初步形成"]
+    },
+    {
+      "id": 16,
+      "category": "analytical",
+      "question": "曹操的屯田制对北方经济恢复起了什么作用？",
+      "expected_answer": null,
+      "expected_sources": ["三国志", "资治通鉴"],
+      "key_points": ["恢复农业生产", "解决军粮问题", "稳定社会秩序", "增加财政收入"]
+    },
+    {
+      "id": 17,
+      "category": "analytical",
+      "question": "九品中正制是什么时候建立的？对魏晋政治有什么影响？",
+      "expected_answer": null,
+      "expected_sources": ["三国志", "晋书"],
+      "key_points": ["曹丕时期", "陈群制定", "门阀士族", "阶层固化"]
+    },
+    {
+      "id": 18,
+      "category": "analytical",
+      "question": "关羽失荆州的原因有哪些？",
+      "expected_answer": null,
+      "expected_sources": ["三国志"],
+      "key_points": ["大意轻敌", "孙刘联盟破裂", "腹背受敌", "糜芳投降"]
+    },
+    {
+      "id": 19,
+      "category": "analytical",
+      "question": "三国时期有哪些著名的以少胜多的战役？",
+      "expected_answer": null,
+      "expected_sources": ["三国志", "资治通鉴"],
+      "key_points": ["官渡之战", "赤壁之战", "夷陵之战"]
+    },
+    {
+      "id": 20,
+      "category": "analytical",
+      "question": "司马家族是如何一步步夺取曹魏政权的？",
+      "expected_answer": null,
+      "expected_sources": ["三国志", "晋书", "资治通鉴"],
+      "key_points": ["高平陵之变", "司马师司马昭", "架空皇帝", "司马炎代魏"]
+    },
+    {
+      "id": 21,
+      "category": "comparative",
+      "question": "比较诸葛亮和司马懿的军事才能。",
+      "expected_answer": null,
+      "expected_sources": ["三国志", "晋书"],
+      "key_points": ["北伐与防御", "战略风格", "用人之道", "各自优劣"]
+    },
+    {
+      "id": 22,
+      "category": "comparative",
+      "question": "曹操、刘备、孙权三人在用人方面各有什么特点？",
+      "expected_answer": null,
+      "expected_sources": ["三国志"],
+      "key_points": ["唯才是举", "以德服人", "据险任贤"]
+    },
+    {
+      "id": 23,
+      "category": "comparative",
+      "question": "蜀汉和曹魏的政治制度有什么主要区别？",
+      "expected_answer": null,
+      "expected_sources": ["三国志", "晋书"],
+      "key_points": ["丞相权力", "人才选拔", "中央集权"]
+    },
+    {
+      "id": 24,
+      "category": "comparative",
+      "question": "官渡之战和赤壁之战有什么相似之处？",
+      "expected_answer": null,
+      "expected_sources": ["三国志", "资治通鉴"],
+      "key_points": ["以少胜多", "决定性战役", "改变格局", "火攻战术"]
+    },
+    {
+      "id": 25,
+      "category": "comparative",
+      "question": "《三国志》和《三国演义》对诸葛亮的描述有什么不同？",
+      "expected_answer": null,
+      "expected_sources": ["三国志", "三国演义"],
+      "key_points": ["史实与虚构", "草船借箭", "空城计", "借东风"]
+    }
+  ]
+}
