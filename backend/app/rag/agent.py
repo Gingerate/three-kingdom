@@ -177,10 +177,14 @@ class RAGState(TypedDict):
     # 中间状态
     route: str                          # "simple" / "complex"
     sub_questions: list[str]            # 分解后的子问题
+    rewritten_questions: list[str]      # 反思后改写的检索问题（重试时使用）
     retrieved_docs: list[dict]          # 检索到的文档
     graded_docs: list[dict]            # 评分后的文档
     generation: str                     # 生成的回答
     reflection_passed: bool             # 自我反思是否通过
+    reflection_reason: str              # 反思判断理由
+    reflection_issues: list[str]        # 反思发现的具体问题
+    reflection_forced: bool             # 是否因重试上限被强制输出
     retry_count: int                    # 重试次数
     resolved_question: str              # 指代消解后的问题
 
@@ -364,9 +368,16 @@ def retrieve(state: RAGState) -> dict:
     all_docs = []
     seen_contents = set()
 
-    # 使用指代消解后的问题，如果 sub_questions 为空（简单问题路由跳过了 decompose）
+    # 重试时使用改写后的 query（由 rewrite_query 节点生成）
+    retry_count = state.get("retry_count", 0)
+    if retry_count > 0:
+        reason = state.get("reflection_reason", "")
+        logger.info(f"重试检索 (第{retry_count}次)，反思原因: {reason}")
+
+    # 优先使用改写后的 query，其次使用原始子问题
     resolved_question = state.get("resolved_question") or state["question"]
-    questions = state["sub_questions"] or [resolved_question]
+    rewritten = state.get("rewritten_questions", [])
+    questions = rewritten if rewritten else (state["sub_questions"] or [resolved_question])
     session_id = state.get("session_id", "")
 
     for question in questions:
@@ -619,46 +630,112 @@ def generate(state: RAGState) -> dict:
     }
 
 
+def _rule_based_validation(answer: str) -> tuple[bool, list[str]]:
+    """基于规则的硬检查（确定性，不依赖 LLM）
+
+    Returns:
+        (passed, issues): passed=False 表示有硬性错误
+    """
+    issues = []
+
+    # 1. 空回答检查
+    clean_answer = answer.replace("📊", "").replace("⭐", "").replace("☆", "").strip()
+    if len(clean_answer) < 20:
+        issues.append("回答内容过短或为空")
+        return False, issues
+
+    # 2. 时间线检查：提取回答中的年份，检查是否在合理范围
+    year_pattern = r'(\d{2,4})\s*年'
+    years_found = re.findall(year_pattern, answer)
+    for year_str in years_found:
+        year = int(year_str)
+        if 100 <= year <= 500 and not (184 <= year <= 280):
+            # 在三国前后范围内但不在三国时期内，可能是合理的（如东汉末年背景）
+            # 但如果直接说"XX年"作为三国事件的时间，需要警惕
+            if year < 184 or year > 280:
+                issues.append(f"年份 {year} 年可能超出三国时期范围（184-280）")
+
+    # 3. 来源名称检查：提取《》中的书名，检查是否是已知史料
+    known_sources = {
+        "三国志", "后汉书", "史记", "资治通鉴", "汉书", "晋书",
+        "三国演义", "世说新语", "搜神记", "裴松之注", "裴注",
+        "后汉纪", "续汉书", "两汉纪", "三国志集解",
+        "风俗通义", "献帝起居注", "汉晋春秋", "九州春秋",
+        "英雄记", "曹瞒传", "江表传", "魏略", "魏书", "吴书", "蜀书",
+    }
+    source_pattern = r'[《]([^》]+)[》]'
+    sources_found = re.findall(source_pattern, answer)
+    for src in sources_found:
+        # 去除篇名（如"三国志·武帝纪" → "三国志"）
+        book_name = src.split("·")[0] if "·" in src else src
+        if book_name and not any(known in book_name for known in known_sources):
+            issues.append(f"引用的来源《{src}》不在已知史料列表中")
+
+    passed = len(issues) == 0
+    return passed, issues
+
+
 def self_reflection(state: RAGState) -> dict:
-    """自我反思：检查回答是否有依据，是否存在幻觉"""
+    """自我反思：规则硬检查 + LLM 软检查"""
+    answer = state["generation"]
+    retry_count = state.get("retry_count", 0)
+
+    # 第一层：规则硬检查（确定性，快速）
+    rule_passed, rule_issues = _rule_based_validation(answer)
+    if not rule_passed:
+        reason = f"规则检查未通过: {'; '.join(rule_issues)}"
+        logger.warning(f"规则硬检查未通过 (重试{retry_count}/2): {reason}")
+        return {
+            "reflection_passed": False,
+            "reflection_reason": reason,
+            "reflection_issues": rule_issues,
+        }
+
+    # 第二层：LLM 软检查
     llm = get_llm()
-
     context = "\n\n".join(d["content"] for d in state["graded_docs"])
-
-    prompt = """你是回答质量检查器。检查生成的回答是否基于提供的参考资料。
-
-判断标准：
-1. 回答中的事实是否能在参考资料中找到依据？
-2. 是否存在编造的信息？
-3. 回答是否完整地回应了用户的问题？
-
-输出 JSON 格式：
-{{"passed": true/false, "reason": "判断理由"}}
-
-如果回答基本有依据且完整，passed 为 true。
-如果回答存在明显编造或遗漏关键信息，passed 为 false。"""
+    reflection_prompt = load_prompt("reflection")
 
     response = llm.invoke([
-        SystemMessage(content=prompt),
+        SystemMessage(content=reflection_prompt),
         HumanMessage(content=f"""参考资料：
 {context}
 
 用户问题：{state['question']}
 
 生成的回答：
-{state['generation']}"""),
+{answer}"""),
     ])
 
     data = parse_llm_json(response.content)
     passed = data.get("passed", False) if data else False  # 解析失败默认不通过，触发重试
+    reason = data.get("reason", "无法解析反思结果") if data else "JSON 解析失败"
+    issues = data.get("issues", []) if data else []
 
-    return {"reflection_passed": passed}
+    # 记录反思结果到日志
+    if passed:
+        logger.info(f"反思通过: {reason}")
+    else:
+        logger.warning(f"反思未通过 (重试{retry_count}/2): {reason}, 问题: {issues}")
+
+    return {
+        "reflection_passed": passed,
+        "reflection_reason": reason,
+        "reflection_issues": issues if isinstance(issues, list) else [],
+    }
 
 
 def finalize(state: RAGState) -> dict:
     """最终输出"""
+    answer = state["generation"]
+
+    # 如果反思未通过但已达重试上限，在回答末尾添加提示
+    if not state.get("reflection_passed") and state.get("retry_count", 0) >= 2:
+        reason = state.get("reflection_reason", "未知原因")
+        answer += f"\n\n> ⚠️ **注意**：本回答未通过质量审查（{reason}），仅供参考，请结合原文判断。"
+
     return {
-        "final_answer": state["generation"],
+        "final_answer": answer,
     }
 
 
@@ -674,14 +751,71 @@ def should_retry(state: RAGState) -> str:
     """判断是否需要重试"""
     if state["reflection_passed"]:
         return "finalize"
-    if state.get("retry_count", 0) >= 2:
+    retry_count = state.get("retry_count", 0)
+    reason = state.get("reflection_reason", "")
+    if retry_count >= 2:
+        logger.warning(f"反思重试已达上限(2次)，强制输出。原因: {reason}")
         return "finalize"  # 最多重试 2 次
+    logger.info(f"反思未通过，准备第{retry_count + 1}次重试。原因: {reason}")
     return "retrieve"  # 重新检索
 
 
 def increment_retry(state: RAGState) -> dict:
     """增加重试计数"""
     return {"retry_count": state.get("retry_count", 0) + 1}
+
+
+def rewrite_query(state: RAGState) -> dict:
+    """根据反思原因改写检索 query，避免盲重试"""
+    llm = get_llm()
+
+    original_questions = state["sub_questions"] or [state.get("resolved_question") or state["question"]]
+    reason = state.get("reflection_reason", "")
+    issues = state.get("reflection_issues", [])
+    context = "\n\n".join(d["content"] for d in state.get("graded_docs", []))
+
+    issues_text = "、".join(issues) if issues else "未列出具体问题"
+
+    prompt = f"""你是一个检索 query 优化专家。上一轮回答因以下原因未通过质量审查：
+
+## 反思原因
+{reason}
+
+## 具体问题
+{issues_text}
+
+## 原始检索问题
+{chr(10).join(f'{i+1}. {q}' for i, q in enumerate(original_questions))}
+
+## 已检索到的参考资料（可能不够充分）
+{context[:1500] if context else '无'}
+
+请改写检索问题，使其能够检索到更准确、更完整的资料来解决上述问题。
+
+要求：
+1. 保留原始问题的核心意图
+2. 针对反思发现的具体问题，增加相关关键词
+3. 如果是来源缺失，扩展检索范围（如添加别名、相关人物）
+4. 如果是时间线错误，增加具体年份/年号作为检索词
+5. 输出 JSON 格式
+
+输出：{{"questions": ["改写后的问题1", "改写后的问题2", ...]}}"""
+
+    try:
+        response = llm.invoke([
+            SystemMessage(content=prompt),
+            HumanMessage(content="请改写检索问题"),
+        ])
+        data = parse_llm_json(response.content)
+        rewritten = data.get("questions", []) if data else []
+        if rewritten and isinstance(rewritten, list):
+            logger.info(f"Query 改写: {original_questions} → {rewritten}")
+            return {"rewritten_questions": rewritten}
+    except Exception as e:
+        logger.warning(f"Query 改写失败: {e}")
+
+    # 改写失败时保持原问题
+    return {"rewritten_questions": original_questions}
 
 
 # ==================== 构建图 ====================
@@ -702,6 +836,7 @@ def build_rag_graph() -> StateGraph:
     workflow.add_node("reflect", self_reflection)
     workflow.add_node("finalize", finalize)
     workflow.add_node("increment_retry", increment_retry)
+    workflow.add_node("rewrite_query", rewrite_query)  # 反思后改写检索 query
 
     # 设置入口
     workflow.set_entry_point("resolve")
@@ -722,7 +857,8 @@ def build_rag_graph() -> StateGraph:
         should_retry,
         {"finalize": "finalize", "retrieve": "increment_retry"},
     )
-    workflow.add_edge("increment_retry", "retrieve")
+    workflow.add_edge("increment_retry", "rewrite_query")  # 重试前先改写 query
+    workflow.add_edge("rewrite_query", "retrieve")
     workflow.add_edge("finalize", END)
 
     return workflow.compile()
@@ -762,10 +898,14 @@ def run_rag(question: str, session_id: str = "") -> dict:
         "session_id": session_id,
         "route": "",
         "sub_questions": [],
+        "rewritten_questions": [],
         "retrieved_docs": [],
         "graded_docs": [],
         "generation": "",
         "reflection_passed": False,
+        "reflection_reason": "",
+        "reflection_issues": [],
+        "reflection_forced": False,
         "retry_count": 0,
         "resolved_question": "",
         "final_answer": "",
@@ -781,6 +921,7 @@ def run_rag(question: str, session_id: str = "") -> dict:
             "sources": [],
             "route": "error",
             "sub_questions": [],
+        "rewritten_questions": [],
         }
 
     return {
@@ -802,10 +943,14 @@ async def run_rag_stream(question: str, session_id: str = ""):
         "session_id": session_id,
         "route": "",
         "sub_questions": [],
+        "rewritten_questions": [],
         "retrieved_docs": [],
         "graded_docs": [],
         "generation": "",
         "reflection_passed": False,
+        "reflection_reason": "",
+        "reflection_issues": [],
+        "reflection_forced": False,
         "retry_count": 0,
         "resolved_question": "",
         "final_answer": "",

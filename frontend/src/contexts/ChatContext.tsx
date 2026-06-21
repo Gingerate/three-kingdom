@@ -87,14 +87,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           generate: '生成回答中...',
           reflect: '检查质量中...',
           finalize: '整理完成',
-          increment_retry: '重新检索中...',
+          increment_retry: '反思未通过，准备重试...',
+          rewrite_query: '改写检索问题中...',
         };
         setStreamStatus(statusMap[node] || '');
 
         // 追踪管线节点进度
         const pipelineNodes = ['router', 'decompose', 'retrieve', 'grade', 'generate', 'reflect'];
         if (node === 'increment_retry') {
-          // 反思未通过，触发重试：递增轮数，重置进度到 retrieve
+          // 反思未通过，触发重试：递增轮数，重置进度到 rewrite_query
           setMessages((prev) => {
             const updated = [...prev];
             const last = updated.length - 1;
@@ -102,6 +103,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               const msg = { ...updated[last] };
               msg.retryCount = (msg.retryCount || 0) + 1;
               msg.completedNodes = ['router', 'decompose'];
+              msg.currentNode = 'rewrite_query';
+              updated[last] = msg;
+            }
+            return updated;
+          });
+        } else if (node === 'rewrite_query') {
+          // 改写 query 完成，标记为已完成，下一步是 retrieve
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated.length - 1;
+            if (last >= 0 && updated[last].role === 'assistant') {
+              const msg = { ...updated[last] };
+              msg.completedNodes = ['router', 'decompose', 'rewrite_query'];
               msg.currentNode = 'retrieve';
               updated[last] = msg;
             }

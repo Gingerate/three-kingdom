@@ -14,6 +14,15 @@ const PIPELINE_STEPS: PipelineStep[] = [
   { key: 'reflect', label: '审查' },
 ];
 
+/** 重试时的管线步骤（插入改写 query 步骤） */
+const RETRY_PIPELINE_STEPS: PipelineStep[] = [
+  { key: 'rewrite_query', label: '改写' },
+  { key: 'retrieve', label: '检索' },
+  { key: 'grade', label: '筛选' },
+  { key: 'generate', label: '生成' },
+  { key: 'reflect', label: '审查' },
+];
+
 interface ChatPipelineProgressProps {
   completedNodes?: string[];
   currentNode?: string;
@@ -22,9 +31,12 @@ interface ChatPipelineProgressProps {
 
 /** 聊天管线进度条 —— 水墨风格节点指示器 */
 export default function ChatPipelineProgress({ completedNodes = [], currentNode, retryCount = 0 }: ChatPipelineProgressProps) {
+  // 重试时使用精简步骤（插入改写 query 步骤）
+  const steps = retryCount > 0 ? RETRY_PIPELINE_STEPS : PIPELINE_STEPS;
+
   return (
     <div className="pipeline-progress">
-      {PIPELINE_STEPS.map((step, i) => {
+      {steps.map((step, i) => {
         const isCompleted = completedNodes.includes(step.key);
         const isCurrent = currentNode === step.key;
         const isActive = isCompleted || isCurrent;
