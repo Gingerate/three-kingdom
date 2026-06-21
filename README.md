@@ -6,6 +6,29 @@
 
 ---
 
+## 功能展示
+
+<table>
+<tr>
+<td align="center"><b>💬 智能问答</b></td>
+<td align="center"><b>📚 知识沉淀</b></td>
+</tr>
+<tr>
+<td><img src="screenshots/chat.png" width="100%" /></td>
+<td><img src="screenshots/wiki.png" width="100%" /></td>
+</tr>
+<tr>
+<td align="center"><b>🕸️ 知识图谱</b></td>
+<td align="center"><b>📊 数据管理</b></td>
+</tr>
+<tr>
+<td><img src="screenshots/graph.png" width="100%" /></td>
+<td><img src="screenshots/data.png" width="100%" /></td>
+</tr>
+</table>
+
+---
+
 ## 核心功能
 
 ### 智能问答（Agentic RAG）
