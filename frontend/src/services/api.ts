@@ -295,6 +295,10 @@ export async function extractBatch(): Promise<any> {
   return request('/extract/batch', { method: 'POST' });
 }
 
+export async function cancelTask(taskId: string): Promise<any> {
+  return request(`/tasks/${taskId}/cancel`, { method: 'POST' });
+}
+
 // ==================== 审核 ====================
 
 export async function getPendingReviews(): Promise<{ items: any[] }> {

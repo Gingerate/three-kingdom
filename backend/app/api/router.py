@@ -16,8 +16,8 @@ from app.models.schemas import ChatRequest
 logger = logging.getLogger(__name__)
 api_router = APIRouter()
 
-# 后台任务引用集合，防止 GC 提前回收
-_background_tasks: set[asyncio.Task] = set()
+# 后台任务注册表：task_id -> asyncio.Task，用于取消和防 GC
+_background_tasks: dict[str, asyncio.Task] = {}
 
 # 表名白名单，防止 SQL 注入
 _VALID_TABLES = {"persons", "events", "forces"}
@@ -97,8 +97,9 @@ async def chat_stream(req: ChatRequest):
                 except Exception as e:
                     logger.error(f"记忆存储失败: {e}")
             _bg_task = asyncio.create_task(_save_memory())
-            _background_tasks.add(_bg_task)
-            _bg_task.add_done_callback(_background_tasks.discard)
+            _mem_key = f"memory_{id(_bg_task)}"
+            _background_tasks[_mem_key] = _bg_task
+            _bg_task.add_done_callback(lambda t: _background_tasks.pop(_mem_key, None))
 
     return StreamingResponse(
         event_generator(),
@@ -415,12 +416,17 @@ async def ingest_data(req: IngestRequest | None = None):
             await asyncio.to_thread(
                 process_and_ingest_with_progress, task_id,
                 clear_first=clear, force_reingest=force, files=file_list,
+                cancel_check=lambda: tracker.is_cancelled(task_id),
             )
             tracker.update(task_id, done=True, message="入库完成")
+        except asyncio.CancelledError:
+            tracker.cancel(task_id)
         except Exception as e:
             tracker.update(task_id, done=True, error=str(e))
 
-    asyncio.create_task(run_ingest())
+    task = asyncio.create_task(run_ingest())
+    _background_tasks[task_id] = task
+    task.add_done_callback(lambda t: _background_tasks.pop(task_id, None))
     return {"status": "ok", "task_id": task_id, "clear_first": clear, "force_reingest": force}
 
 
@@ -430,7 +436,7 @@ async def ingest_progress_stream(task_id: str):
     from app.core.progress import tracker
 
     async def event_generator():
-        async for data in tracker.subscribe(task_id):
+        async for data in tracker.subscribe(task_id, timeout=1800):
             yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
             if data.get("done"):
                 break
@@ -441,6 +447,24 @@ async def ingest_progress_stream(task_id: str):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
+
+
+@api_router.post("/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    """取消一个后台任务"""
+    from app.core.progress import tracker
+
+    # 先标记进度为已取消
+    cancelled = tracker.cancel(task_id)
+    if not cancelled:
+        raise HTTPException(status_code=404, detail="任务不存在或已完成")
+
+    # 如果有对应的 asyncio.Task，也取消它
+    bg_task = _background_tasks.get(task_id)
+    if bg_task and not bg_task.done():
+        bg_task.cancel()
+
+    return {"status": "ok", "message": "任务已取消"}
 
 
 @api_router.post("/ingest/upload")
@@ -798,6 +822,12 @@ async def extract_batch():
     task_id = str(uuid.uuid4())[:8]
     tracker.create_task(task_id)
 
+    cancel_check = lambda: tracker.is_cancelled(task_id)
+
+    def extract_progress(current: int, total: int, message: str):
+        """抽取进度回调（在线程中调用）"""
+        tracker.update(task_id, current=current, total=total, message=message)
+
     async def run_extract():
         from app.kg.corpus_import import load_all_documents
         from app.kg.text_splitter import split_document
@@ -806,7 +836,7 @@ async def extract_batch():
 
         try:
             tracker.update(task_id, stage="加载文档", message="正在加载 raw/ 目录下的文档...")
-            documents = load_all_documents()
+            documents = await asyncio.to_thread(load_all_documents)
             if not documents:
                 tracker.update(task_id, done=True, error="raw/ 目录下没有找到文档")
                 return
@@ -814,33 +844,62 @@ async def extract_batch():
             tracker.update(task_id, stage="切分文本", message=f"已加载 {len(documents)} 个文档，正在切分...")
             all_chunks = []
             for i, doc in enumerate(documents):
-                chunks = split_document(doc.content, doc.source, doc.category)
+                if cancel_check():
+                    tracker.cancel(task_id)
+                    return
+                chunks = await asyncio.to_thread(split_document, doc.content, doc.source, doc.category)
                 all_chunks.extend(chunks)
                 tracker.update(task_id, current=i + 1, total=len(documents),
                              message=f"切分文档 {i + 1}/{len(documents)}: {doc.source}")
 
-            tracker.update(task_id, stage="知识抽取", total=len(all_chunks), current=0,
-                         message=f"共 {len(all_chunks)} 个文本块，开始抽取...")
+            # 按文档分组 chunks，逐文档抽取（粒度更细，进度更新更频繁）
+            chunks_by_source: dict[str, list] = {}
+            for chunk in all_chunks:
+                chunks_by_source.setdefault(chunk.source, []).append(chunk)
 
-            # 分批抽取，更新进度
-            batch_size = 10
+            source_list = list(chunks_by_source.keys())
+            total_sources = len(source_list)
             all_results = []
-            for i in range(0, len(all_chunks), batch_size):
-                batch = all_chunks[i:i + batch_size]
-                batch_results = extract_from_chunks(batch)
+            extracted_count = 0
+
+            tracker.update(task_id, stage="知识抽取", total=total_sources, current=0,
+                         message=f"共 {len(all_chunks)} 个文本块，{total_sources} 个文档，开始抽取...")
+
+            for doc_idx, source in enumerate(source_list, 1):
+                if cancel_check():
+                    tracker.cancel(task_id)
+                    return
+
+                doc_chunks = chunks_by_source[source]
+                tracker.update(task_id, current=doc_idx - 1, total=total_sources,
+                             message=f"正在抽取 [{doc_idx}/{total_sources}] {source} ({len(doc_chunks)} 块)")
+
+                batch_results = await asyncio.to_thread(
+                    extract_from_chunks, doc_chunks, 5, cancel_check,
+                    lambda cur, tot, msg: extract_progress(
+                        doc_idx - 1 + cur / max(tot, 1), total_sources,
+                        f"[{doc_idx}/{total_sources}] {source}: {msg}"
+                    )
+                )
                 all_results.extend(batch_results)
-                tracker.update(task_id, current=min(i + batch_size, len(all_chunks)),
-                             message=f"已抽取 {len(all_results)} 个结果")
+                extracted_count += len(batch_results)
+
+                tracker.update(task_id, current=doc_idx, total=total_sources,
+                             message=f"[{doc_idx}/{total_sources}] {source}: 抽取到 {len(batch_results)} 个结果")
 
             tracker.update(task_id, stage="保存结果", message="正在将抽取结果加入审核队列...")
-            review_ids = add_batch_to_review_queue(all_results)
+            review_ids = await asyncio.to_thread(add_batch_to_review_queue, all_results)
 
             tracker.update(task_id, done=True,
                          message=f"完成！共抽取 {len(all_results)} 个结果，已加入审核队列")
+        except asyncio.CancelledError:
+            tracker.cancel(task_id)
         except Exception as e:
             tracker.update(task_id, done=True, error=str(e))
 
-    asyncio.create_task(run_extract())
+    task = asyncio.create_task(run_extract())
+    _background_tasks[task_id] = task
+    task.add_done_callback(lambda t: _background_tasks.pop(task_id, None))
     return {"status": "ok", "task_id": task_id}
 
 
@@ -1060,7 +1119,9 @@ async def ingest_crawl_result(index: int):
         except Exception as e:
             tracker.update(task_id, done=True, error=str(e))
 
-    asyncio.create_task(run_ingest())
+    task = asyncio.create_task(run_ingest())
+    _background_tasks[task_id] = task
+    task.add_done_callback(lambda t: _background_tasks.pop(task_id, None))
 
     return {
         "status": "ok",

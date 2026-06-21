@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { MessageOutlined, NodeIndexOutlined, DatabaseOutlined, BookOutlined, AuditOutlined, CloudOutlined } from '@ant-design/icons';
 import { ChatProvider } from './contexts/ChatContext';
+import { TaskProvider } from './contexts/TaskContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import ChatPage from './pages/ChatPage';
 import GraphPage from './pages/GraphPage';
@@ -92,6 +93,7 @@ function App() {
   return (
     <BrowserRouter>
       <ChatProvider>
+      <TaskProvider>
       {/* 主界面 */}
       <TopBar />
       <div className="main-content">
@@ -110,6 +112,7 @@ function App() {
           </ErrorBoundary>
         </div>
       </div>
+      </TaskProvider>
       </ChatProvider>
     </BrowserRouter>
   );

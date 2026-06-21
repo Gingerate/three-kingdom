@@ -1,5 +1,6 @@
 """数据处理管线 —— 语料导入 → 切分 → embedding → 入库"""
 
+import asyncio
 import logging
 import threading
 from app.kg.corpus_import import load_all_documents, RawDocument
@@ -153,14 +154,21 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
                                       quantize: bool = True,
                                       clear_first: bool = False,
                                       force_reingest: bool = False,
-                                      files: list[str] | None = None) -> dict:
+                                      files: list[str] | None = None,
+                                      cancel_check: callable = None) -> dict:
     """带进度推送的入库流程
 
     Args:
         files: 可选的文件路径列表（相对于 raw_dir），传入时只入库指定文件
+        cancel_check: 取消检查回调，返回 True 表示应取消
     """
 
     global _is_ingesting
+
+    def check_cancelled():
+        """检查是否已取消，如果是则抛出 CancelledError"""
+        if cancel_check and cancel_check():
+            raise asyncio.CancelledError("用户取消")
 
     # 检查是否已有入库任务在运行
     if not _ingest_lock.acquire(blocking=False):
@@ -198,6 +206,7 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
             logger.info("已同步清空去重记录")
 
         # 1. 加载文档（如果指定了 files，只加载指定文件）
+        check_cancelled()
         update(stage="加载文档", message="正在扫描 raw/ 目录...")
         documents = load_all_documents(raw_dir, files=files)
 
@@ -211,6 +220,7 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
             return {"documents": 0, "chunks": 0, "ingested": 0, "skipped": 0}
 
         # 2. 切分
+        check_cancelled()
         logger.info(f"开始切分 {len(documents)} 个文档...")
         update(stage="切分文本", message="正在切分...")
         all_chunks: list[Chunk] = []
@@ -233,6 +243,10 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
         records_to_add = []
 
         for i, chunk in enumerate(all_chunks):
+            # 每100个chunk检查一次取消
+            if (i + 1) % 100 == 0:
+                check_cancelled()
+
             chunk_hash = calculate_chunk_hash(chunk.content)
             if is_chunk_exists(chunk_hash):
                 skipped += 1
@@ -266,6 +280,7 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
             }
 
         # 4. Embedding + 入库（带进度）
+        check_cancelled()
         update(stage="Embedding", current=0, total=len(new_chunks),
                message="加载 embedding 模型...")
         from app.rag.embeddings import get_embeddings
@@ -285,6 +300,7 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
         ingested = 0
 
         for i in range(0, len(docs), batch_size):
+            check_cancelled()
             batch = docs[i:i + batch_size]
             logger.info(f"写入批次 {i//batch_size + 1}/{(len(docs)-1)//batch_size + 1}...")
             vectorstore.add_documents(batch)

@@ -19,6 +19,7 @@ class ProgressState:
     total: int = 0
     message: str = ""
     done: bool = False
+    cancelled: bool = False
     error: str | None = None
     started_at: float = field(default_factory=time.time)
 
@@ -37,6 +38,7 @@ class ProgressState:
             "percent": self.percent,
             "message": self.message,
             "done": self.done,
+            "cancelled": self.cancelled,
             "error": self.error,
             "elapsed": round(time.time() - self.started_at, 1),
         }
@@ -89,6 +91,27 @@ class ProgressTracker:
 
         # 通知所有订阅者（锁外执行，避免死锁）
         self._notify(task_id, state)
+
+    def cancel(self, task_id: str) -> bool:
+        """取消任务，返回是否成功"""
+        with self._lock:
+            state = self._tasks.get(task_id)
+            if not state or state.done:
+                return False
+            state.cancelled = True
+            state.done = True
+            state.error = "用户取消"
+            state.stage = "已取消"
+        # 通知订阅者
+        self._notify(task_id, state)
+        logger.info(f"任务已取消: {task_id}")
+        return True
+
+    def is_cancelled(self, task_id: str) -> bool:
+        """检查任务是否已取消"""
+        with self._lock:
+            state = self._tasks.get(task_id)
+            return state.cancelled if state else False
 
     def _notify(self, task_id: str, state: ProgressState):
         # 获取订阅者列表的副本，避免迭代时修改

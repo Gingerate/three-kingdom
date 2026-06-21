@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 
@@ -239,15 +240,22 @@ def extract_from_text(text: str, source: str = "") -> ExtractionResult:
     )
 
 
-def extract_from_chunks(chunks: list, batch_size: int = 5) -> list[ExtractionResult]:
+def extract_from_chunks(chunks: list, batch_size: int = 5,
+                        cancel_check: callable = None,
+                        progress_callback: callable = None) -> list[ExtractionResult]:
     """批量从文本块中抽取实体和关系
 
     Args:
         chunks: Chunk 对象列表（来自 text_splitter）
         batch_size: 每批处理的 chunk 数量（合并相邻 chunk 以获取更完整的上下文）
+        cancel_check: 取消检查回调，返回 True 表示应取消
+        progress_callback: 进度回调，签名 (current: int, total: int, message: str)
 
     Returns:
         抽取结果列表
+
+    Raises:
+        asyncio.CancelledError: 如果 cancel_check 返回 True
     """
     results = []
 
@@ -267,6 +275,10 @@ def extract_from_chunks(chunks: list, batch_size: int = 5) -> list[ExtractionRes
 
     total_batches = len(batches)
     for batch_idx, batch in enumerate(batches, 1):
+        # 检查取消信号
+        if cancel_check and cancel_check():
+            raise asyncio.CancelledError("用户取消")
+
         # 合并本批次所有 chunk 的文本
         combined_texts = []
         source = ""
@@ -282,11 +294,15 @@ def extract_from_chunks(chunks: list, batch_size: int = 5) -> list[ExtractionRes
             combined_text = combined_text[:8000]
 
         print(f"  [批次 {batch_idx}/{total_batches}] 正在抽取 ({len(combined_text)} 字)")
+        if progress_callback:
+            progress_callback(batch_idx, total_batches, f"抽取批次 {batch_idx}/{total_batches} ({source})")
 
         try:
             result = extract_from_text(combined_text, source)
             results.append(result)
             print(f"    → 提取到 {len(result.entities)} 个实体，{len(result.relations)} 个关系")
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             print(f"    ✗ 抽取失败: {e}")
             results.append(ExtractionResult(source_text=combined_text))
