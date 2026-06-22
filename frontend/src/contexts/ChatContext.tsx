@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useRef, useCallback, type ReactNode } from 'react';
+import { message } from 'antd';
 import { chatStream, getSessions, getSessionHistory, type StreamEvent, type SessionInfo } from '../services/api';
 
 export interface Message {
@@ -218,25 +219,35 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const data = await getSessions(50);
       setSessions(data.sessions || []);
     } catch {
-      // 静默失败
+      // 静默失败，不影响用户体验
     }
   }, []);
 
   const switchSession = useCallback(async (sid: string) => {
-    if (loadingRef.current) return;
+    // 如果正在加载中，先取消当前的流
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setLoading(false);
+    setStreamStatus('');
+
     try {
       const data = await getSessionHistory(sid);
-      const historyMessages: Message[] = (data.messages || []).flatMap((m: any) => {
-        const result: Message[] = [];
-        if (m.question) result.push({ role: 'user', content: m.question });
-        if (m.answer) result.push({ role: 'assistant', content: m.answer, sources: m.sources || [] });
-        return result;
-      });
+
+      // 后端返回格式: { role, content, sources, route, created_at }
+      const historyMessages: Message[] = (data.messages || []).map((m: any) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        sources: m.sources || [],
+        route: m.route,
+        timestamp: m.created_at ? new Date(m.created_at).getTime() : undefined,
+      }));
+
       setMessages(historyMessages);
       setSessionId(sid);
-      setStreamStatus('');
     } catch {
-      // 静默失败
+      message.error('加载会话失败，请重试');
     }
   }, []);
 

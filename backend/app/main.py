@@ -21,7 +21,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
     )
 
-    # CORS 配置（允许前端端口）
+    # CORS 配置（允许前端端口 + 公网域名）
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -29,6 +29,7 @@ def create_app() -> FastAPI:
             "http://127.0.0.1:5174",
             "http://localhost:5173",
             "http://127.0.0.1:5173",
+            "https://jinligame.fun",
         ],
         allow_credentials=True,
         allow_methods=["*"],
