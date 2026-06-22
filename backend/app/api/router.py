@@ -326,6 +326,103 @@ async def cleanup_knowledge(days: int = Query(30, ge=1, le=365)):
     return {"status": "ok", "deleted_count": deleted, "days": days}
 
 
+@api_router.post("/knowledge/extract")
+async def extract_knowledge_from_history():
+    """从历史对话中批量提取知识摘要（异步任务）"""
+    from app.core.progress import tracker
+
+    task_id = str(uuid.uuid4())[:8]
+    tracker.create_task(task_id)
+
+    async def run_extract():
+        from app.core.database import get_connection, save_knowledge_summary
+        from app.rag.memory import extract_knowledge
+
+        def _extract():
+            results = {"sessions": 0, "qa_pairs": 0, "summaries": 0, "skipped": 0}
+
+            with get_connection() as conn:
+                # 获取所有会话
+                sessions = conn.execute(
+                    'SELECT DISTINCT session_id FROM conversations'
+                ).fetchall()
+
+                results["sessions"] = len(sessions)
+                tracker.update(task_id, total=len(sessions), current=0,
+                             stage="扫描会话", message=f"找到 {len(sessions)} 个会话")
+
+                for session_idx, session in enumerate(sessions, 1):
+                    if tracker.is_cancelled(task_id):
+                        tracker.cancel(task_id)
+                        return results
+
+                    session_id = session["session_id"]
+
+                    # 获取该会话的问答对
+                    messages = conn.execute(
+                        "SELECT role, content FROM conversations "
+                        "WHERE session_id = ? ORDER BY created_at ASC",
+                        (session_id,),
+                    ).fetchall()
+
+                    # 配对 user/assistant 消息
+                    qa_pairs = []
+                    current_question = None
+                    for msg in messages:
+                        if msg["role"] == "user":
+                            current_question = msg["content"]
+                        elif msg["role"] == "assistant" and current_question:
+                            qa_pairs.append((current_question, msg["content"]))
+                            current_question = None
+
+                    # 检查该会话是否已有摘要
+                    existing = conn.execute(
+                        "SELECT COUNT(*) as cnt FROM knowledge_summaries WHERE session_id = ?",
+                        (session_id,),
+                    ).fetchone()["cnt"]
+
+                    if existing > 0:
+                        results["skipped"] += len(qa_pairs)
+                        tracker.update(task_id, current=session_idx,
+                                     message=f"会话 {session_idx}/{len(sessions)}: 已有摘要，跳过")
+                        continue
+
+                    results["qa_pairs"] += len(qa_pairs)
+                    tracker.update(task_id, current=session_idx,
+                                 stage="提取摘要",
+                                 message=f"会话 {session_idx}/{len(sessions)}: 处理 {len(qa_pairs)} 个问答对")
+
+                    # 为每个问答对提取摘要
+                    for q_idx, (question, answer) in enumerate(qa_pairs, 1):
+                        if tracker.is_cancelled(task_id):
+                            tracker.cancel(task_id)
+                            return results
+
+                        try:
+                            summaries = extract_knowledge(question, answer)
+                            for summary in summaries:
+                                save_knowledge_summary(session_id, question, summary)
+                            results["summaries"] += len(summaries)
+                        except Exception as e:
+                            logger.warning(f"提取摘要失败: {question[:50]}... - {e}")
+
+            return results
+
+        try:
+            result = await asyncio.to_thread(_extract)
+            tracker.update(task_id, done=True,
+                         message=f"完成！提取 {result['summaries']} 条摘要，跳过 {result['skipped']} 个问答对")
+        except Exception as e:
+            logger.error(f"批量提取摘要失败: {e}")
+            tracker.update(task_id, done=True, error=str(e))
+
+    task = asyncio.create_task(run_extract())
+    _background_tasks[task_id] = task
+    task.add_done_callback(lambda t: _background_tasks.pop(task_id, None))
+
+    return {"status": "ok", "task_id": task_id}
+
+
 # ==================== Wiki ====================
 
 @api_router.get("/wiki")

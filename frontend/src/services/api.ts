@@ -169,6 +169,13 @@ export async function cleanupKnowledge(days = 30): Promise<{ deleted_count: numb
   return request(`/knowledge/cleanup?days=${days}`, { method: 'POST' });
 }
 
+export async function extractKnowledgeFromHistory(): Promise<{
+  status: string;
+  task_id: string;
+}> {
+  return request('/knowledge/extract', { method: 'POST' });
+}
+
 export async function distillWiki(sessionIds?: string[], topic?: string): Promise<any> {
   return request('/wiki/distill', {
     method: 'POST',

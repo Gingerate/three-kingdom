@@ -52,8 +52,14 @@ def extract_knowledge(question: str, answer: str) -> list[str]:
     llm = get_llm(temperature=0.1)
 
     try:
+        # 使用临时占位符避免子串误匹配（如 question 中包含 "{answer}"）
+        prompt = EXTRACT_PROMPT
+        prompt = prompt.replace("{question}", "\x00QUESTION\x00")
+        prompt = prompt.replace("{answer}", "\x00ANSWER\x00")
+        prompt = prompt.replace("\x00QUESTION\x00", question)
+        prompt = prompt.replace("\x00ANSWER\x00", answer)
         response = llm.invoke([
-            SystemMessage(content=EXTRACT_PROMPT.format(question=question, answer=answer)),
+            SystemMessage(content=prompt),
             HumanMessage(content="请提取精华摘要"),
         ])
 

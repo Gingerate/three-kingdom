@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button, Tag, Spin, message, Select, Popconfirm, Modal, Input } from 'antd';
-import { BookOutlined, ThunderboltOutlined, DeleteOutlined, EditOutlined, ClearOutlined, SearchOutlined } from '@ant-design/icons';
+import { BookOutlined, ThunderboltOutlined, DeleteOutlined, EditOutlined, ClearOutlined, SearchOutlined, DatabaseOutlined } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { getWikiPages, getKnowledgeSummaries, distillWiki, deleteWikiPage, updateWikiPage, cleanupKnowledge } from '../services/api';
+import { getWikiPages, getWikiPage, getKnowledgeSummaries, distillWiki, deleteWikiPage, updateWikiPage, cleanupKnowledge, extractKnowledgeFromHistory } from '../services/api';
 import EmptyState from '../components/EmptyState';
 
 interface WikiPage {
@@ -38,6 +38,7 @@ export default function WikiPage() {
   const [editContent, setEditContent] = useState('');
   const [editTopic, setEditTopic] = useState('');
   const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [extractLoading, setExtractLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
 
   useEffect(() => {
@@ -73,6 +74,48 @@ export default function WikiPage() {
     }
   };
 
+  const handleExtractFromHistory = async () => {
+    setExtractLoading(true);
+    try {
+      const { task_id } = await extractKnowledgeFromHistory();
+
+      // 使用 SSE 监听任务进度
+      const eventSource = new EventSource(
+        `${import.meta.env.VITE_API_BASE || 'http://localhost:8000/api'}/ingest/progress/${task_id}`
+      );
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.done) {
+            eventSource.close();
+            setExtractLoading(false);
+            if (data.error) {
+              message.error(`提取失败: ${data.error}`);
+            } else {
+              message.success(data.message || '提取完成');
+              loadData();
+            }
+          } else if (data.message) {
+            // 可以在这里显示进度信息
+            console.log(`[提取进度] ${data.message}`);
+          }
+        } catch {
+          // 忽略解析错误
+        }
+      };
+
+      eventSource.onerror = () => {
+        eventSource.close();
+        setExtractLoading(false);
+        message.error('进度监听失败');
+      };
+    } catch {
+      setExtractLoading(false);
+      message.error('提取失败');
+    }
+  };
+
   // 提取所有主题标签
   const topics = Array.from(new Set(pages.map(p => p.topic).filter(Boolean)));
 
@@ -80,7 +123,7 @@ export default function WikiPage() {
   const filteredPages = searchText
     ? pages.filter(p =>
         p.title.toLowerCase().includes(searchText.toLowerCase()) ||
-        p.content.toLowerCase().includes(searchText.toLowerCase())
+        (p.content || '').toLowerCase().includes(searchText.toLowerCase())
       )
     : pages;
 
@@ -123,7 +166,14 @@ export default function WikiPage() {
     try {
       const data = await distillWiki();
       if (data.status === 'ok') {
-        message.success(`已生成 Wiki：${data.title}（${data.summary_count} 条摘要）`);
+        if (data.wikis && data.wikis.length > 1) {
+          const topics = data.wikis.map((w: any) => w.topic).join('、');
+          message.success(`已按主题生成 ${data.wiki_count} 篇 Wiki：${topics}`);
+        } else if (data.wikis && data.wikis.length === 1) {
+          message.success(`已生成 Wiki：${data.wikis[0].title}（${data.wikis[0].summary_count} 条摘要）`);
+        } else {
+          message.success('Wiki 生成完成');
+        }
         loadData();
       } else {
         message.error(data.message || '生成失败');
@@ -135,8 +185,19 @@ export default function WikiPage() {
     }
   };
 
-  const openPage = (page: WikiPage) => {
-    setSelectedPage(page);
+  const openPage = async (page: WikiPage) => {
+    // 如果没有完整内容，先从 API 获取
+    if (!page.content) {
+      try {
+        const fullPage = await getWikiPage(page.id);
+        setSelectedPage(fullPage);
+      } catch {
+        message.error('加载页面内容失败');
+        return;
+      }
+    } else {
+      setSelectedPage(page);
+    }
     setView('reader');
   };
 
@@ -175,6 +236,14 @@ export default function WikiPage() {
           size="small"
         />
         <div className="page-header-spacer" />
+        <Button
+          icon={<DatabaseOutlined />}
+          onClick={handleExtractFromHistory}
+          loading={extractLoading}
+          size="small"
+        >
+          提取摘要
+        </Button>
         <Popconfirm
           title="确定清理超过 30 天的知识摘要？"
           onConfirm={handleCleanupKnowledge}
@@ -389,8 +458,9 @@ function WikiReader({ page, onClose }: {
   const sectionRefs = useRef<(HTMLElement | null)[]>([]);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // 将内容按 h2 分段
-  const sections = page.content.split(/(?=^## )/m).filter(Boolean);
+  // 将内容按 h2 分段（防御性检查：content 可能为空）
+  const content = page.content || '';
+  const sections = content.split(/(?=^## )/m).filter(Boolean);
 
   // 提取目录结构
   const tocItems: TocItem[] = sections.map((section, idx) => {

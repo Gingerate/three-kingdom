@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from app.core.config import settings
 from app.core.database import (
     get_knowledge_summaries,
     save_wiki_page,
@@ -47,50 +45,90 @@ DISTILL_PROMPT = """你是一个知识编纂专家。将以下多条知识摘要
 请开始编纂："""
 
 
-TOPIC_DETECT_PROMPT = """分析以下知识摘要，给出一个主题标签。
+TOPIC_CLUSTER_PROMPT = """分析以下知识摘要，按主题进行聚类分组。
 
-可选主题：人物、战役、政治、制度、地理、文化、综合
+## 要求
+1. 根据摘要内容的关联性，自然地归纳出主题分类
+2. 主题应该能概括该组摘要的核心内容
+3. 主题名称简洁（2-6个字），如：赤壁之战、诸葛亮北伐、曹魏政权、蜀汉内政等
+4. 每条摘要只归入一个最相关的主题
+5. 输出 JSON 格式
 
-只输出主题标签，不要其他内容。
+## 输出格式
+{
+  "clusters": {
+    "主题1": [0, 2, 5],
+    "主题2": [1, 3],
+    "主题3": [4, 6, 7]
+  }
+}
 
-摘要：
-{summaries}"""
+其中数字是摘要的索引（从0开始）。
+
+## 知识摘要列表
+{summaries}
+
+请开始聚类："""
 
 
-def detect_topic(summaries: list[dict]) -> str:
-    """检测摘要的主题"""
-    llm = ChatOpenAI(
-        model=settings.llm_model,
-        api_key=settings.llm_api_key,
-        base_url=settings.llm_base_url,
-        temperature=0.1,
-        max_tokens=32,
+def cluster_by_topic(summaries: list[dict]) -> dict[str, list[int]]:
+    """将摘要按主题聚类，返回 {主题: [摘要索引列表]}"""
+    from app.rag.agent import get_llm
+    llm = get_llm(temperature=0.2)
+
+    summaries_text = "\n".join(
+        f"[{i}] {s['summary']}"
+        for i, s in enumerate(summaries[:30])  # 限制30条避免太长
     )
 
-    text = "\n".join(f"- {s['summary']}" for s in summaries[:20])
-
     try:
+        # 使用 replace 而非 format，避免 JSON 示例中的花括号被误解析
+        prompt = TOPIC_CLUSTER_PROMPT.replace("{summaries}", summaries_text)
         response = llm.invoke([
-            SystemMessage(content=TOPIC_DETECT_PROMPT.format(summaries=text)),
-            HumanMessage(content="请判断主题"),
+            SystemMessage(content=prompt),
+            HumanMessage(content="请进行主题聚类"),
         ])
-        topic = response.content.strip()
-        # 验证是否是合法主题
-        valid_topics = {"人物", "战役", "政治", "制度", "地理", "文化", "综合"}
-        return topic if topic in valid_topics else "综合"
+
+        # 解析 JSON
+        from app.utils.parsers import parse_llm_json
+        data = parse_llm_json(response.content)
+
+        if not data or "clusters" not in data:
+            # 聚类失败，全部归为"综合"
+            return {"综合": list(range(len(summaries)))}
+
+        clusters = data["clusters"]
+
+        # 验证和清理
+        valid_clusters = {}
+        all_indices = set(range(len(summaries)))
+        covered_indices = set()
+
+        for topic, indices in clusters.items():
+            if not isinstance(indices, list):
+                continue
+            # 只保留有效的索引
+            valid_indices = [i for i in indices if isinstance(i, int) and 0 <= i < len(summaries)]
+            if valid_indices:
+                valid_clusters[topic] = valid_indices
+                covered_indices.update(valid_indices)
+
+        # 把未被分类的摘要归入"其他"
+        uncovered = all_indices - covered_indices
+        if uncovered:
+            valid_clusters["其他"] = list(uncovered)
+
+        return valid_clusters if valid_clusters else {"综合": list(range(len(summaries)))}
+
     except Exception:
-        return "综合"
+        # 出错时全部归为"综合"
+        return {"综合": list(range(len(summaries)))}
 
 
 def generate_wiki(summaries: list[dict], topic_hint: str = "") -> tuple[str, str]:
     """从摘要生成 Wiki 页面，返回 (title, content)"""
-    llm = ChatOpenAI(
-        model=settings.llm_model,
-        api_key=settings.llm_api_key,
-        base_url=settings.llm_base_url,
-        temperature=0.3,
-        max_tokens=4096,
-    )
+    from app.rag.agent import get_llm
+    llm = get_llm(temperature=0.3)
 
     summaries_text = "\n".join(
         f"- [{s.get('created_at', '')}] 问：{s['question']}\n  答摘要：{s['summary']}"
@@ -122,7 +160,10 @@ def generate_wiki(summaries: list[dict], topic_hint: str = "") -> tuple[str, str
 
 def distill_and_save(session_ids: list[str] | None = None,
                      topic: str = "") -> dict:
-    """从指定会话（或最近的摘要）distill 出 Wiki 页面"""
+    """从指定会话（或最近的摘要）distill 出 Wiki 页面
+
+    自动按主题聚类，生成多篇 Wiki
+    """
     # 获取摘要
     summaries = []
     if session_ids:
@@ -145,25 +186,43 @@ def distill_and_save(session_ids: list[str] | None = None,
     if not summaries:
         return {"status": "error", "message": "没有可用的知识摘要"}
 
-    # 如果没有指定主题，先检测（避免 generate_wiki 内部再检测一次）
-    if not topic:
-        topic = detect_topic(summaries)
+    # 按主题聚类
+    clusters = cluster_by_topic(summaries)
 
-    # 生成 Wiki
-    title, content = generate_wiki(summaries, topic_hint=topic)
-
-    # 保存
+    # 为每个主题生成一篇 Wiki
+    results = []
     source_sessions = list(set(s["session_id"] for s in summaries))
-    save_wiki_page(
-        title=title,
-        content=content,
-        topic=topic,
-        source_sessions=source_sessions,
-    )
+
+    for topic_name, indices in clusters.items():
+        # 获取该主题的摘要
+        topic_summaries = [summaries[i] for i in indices if i < len(summaries)]
+
+        if not topic_summaries:
+            continue
+
+        # 生成 Wiki
+        title, content = generate_wiki(topic_summaries, topic_hint=topic_name)
+
+        # 保存
+        save_wiki_page(
+            title=title,
+            content=content,
+            topic=topic_name,
+            source_sessions=source_sessions,
+        )
+
+        results.append({
+            "title": title,
+            "topic": topic_name,
+            "summary_count": len(topic_summaries),
+        })
+
+    if not results:
+        return {"status": "error", "message": "生成 Wiki 失败"}
 
     return {
         "status": "ok",
-        "title": title,
-        "content": content,
-        "summary_count": len(summaries),
+        "wiki_count": len(results),
+        "wikis": results,
+        "total_summaries": len(summaries),
     }
