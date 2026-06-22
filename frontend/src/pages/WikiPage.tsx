@@ -81,7 +81,7 @@ export default function WikiPage() {
 
       // 使用 SSE 监听任务进度
       const eventSource = new EventSource(
-        `${import.meta.env.VITE_API_BASE || 'http://localhost:8000/api'}/ingest/progress/${task_id}`
+        `${import.meta.env.VITE_API_BASE || '/api'}/ingest/progress/${task_id}`
       );
 
       eventSource.onmessage = (event) => {
