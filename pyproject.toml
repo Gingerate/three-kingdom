@@ -46,6 +46,8 @@ converters = [
     "odfpy>=1.4.0",           # .odt
     "ebooklib>=0.18.0",       # .epub
     "mobi>=0.3.0",            # .mobi (Kindle)
+    "PyPDF2>=2.2.0",          # caj2pdf 依赖
+    "imagesize>=1.3.0",       # caj2pdf 依赖
 ]
 # OCR 支持（图片型 PDF 识别）
 ocr = [
