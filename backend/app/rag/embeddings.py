@@ -89,7 +89,7 @@ class LocalHuggingFaceEmbeddings(Embeddings):
             padding=True,
         ).to(self._model.device)
 
-        with torch.no_grad():
+        with torch.no_grad(), torch.amp.autocast(device_type="cuda", enabled=self.device == "cuda"):
             outputs = self._model(**inputs)
 
         # Mean pooling
@@ -119,8 +119,8 @@ class LocalHuggingFaceEmbeddings(Embeddings):
         if len(texts) <= 4:
             return [self._embed(text) for text in texts]
 
-        # 批量推理
-        batch_size = 32
+        # 批量推理（GPU 可承载更大 batch）
+        batch_size = 128 if self.device == "cuda" else 32
         all_embeddings = []
 
         for i in range(0, len(texts), batch_size):
@@ -133,7 +133,7 @@ class LocalHuggingFaceEmbeddings(Embeddings):
                 padding=True,
             ).to(self._model.device)
 
-            with torch.no_grad():
+            with torch.no_grad(), torch.amp.autocast(device_type="cuda", enabled=self.device == "cuda"):
                 outputs = self._model(**inputs)
 
             # Mean pooling

@@ -31,6 +31,10 @@ backend/.env
 # 模型文件（太大不提交）
 models/
 
+# 工具二进制（按需下载）
+tools/cloudflare/
+tools/poppler/
+
 # ==================== 数据文件 ====================
 backend/data/
 *.db

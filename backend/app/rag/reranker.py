@@ -58,8 +58,8 @@ class LocalReranker:
         self._load_model()
 
         scores = []
-        # 分批处理，每批 8 条
-        batch_size = 8
+        # GPU 可承载更大 batch
+        batch_size = 64 if self.device == "cuda" else 8
         for i in range(0, len(passages), batch_size):
             batch = passages[i: i + batch_size]
             pairs = [[query, p] for p in batch]
@@ -72,7 +72,7 @@ class LocalReranker:
                 return_tensors="pt",
             ).to(self._model.device)
 
-            with torch.no_grad():
+            with torch.no_grad(), torch.amp.autocast(device_type="cuda", enabled=self.device == "cuda"):
                 outputs = self._model(**inputs)
                 batch_scores = outputs.logits.squeeze(-1).cpu().float().tolist()
 

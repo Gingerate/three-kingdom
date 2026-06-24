@@ -17,8 +17,7 @@ class PDFParseError(Exception):
 def parse_pdf_to_markdown(pdf_path: str | Path) -> str:
     """解析 PDF 为 Markdown 格式
 
-    优先使用 pdfplumber 提取文本层。
-    如果是图片型 PDF，自动 fallback 到 OCR。
+    使用 pdfplumber 提取文本层。图片型 PDF 不支持。
 
     Args:
         pdf_path: PDF 文件路径
@@ -34,7 +33,6 @@ def parse_pdf_to_markdown(pdf_path: str | Path) -> str:
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF 文件不存在: {pdf_path}")
 
-    # Step 1: pdfplumber 文本提取
     try:
         import pdfplumber
     except ImportError:
@@ -52,15 +50,8 @@ def parse_pdf_to_markdown(pdf_path: str | Path) -> str:
     except Exception as e:
         logger.warning(f"pdfplumber 提取失败: {e}")
 
-    # Step 2: 如果提取为空，尝试 OCR
     if not content.strip():
-        from app.tools.ocr import is_image_pdf, ocr_pdf
-        if is_image_pdf(pdf_path):
-            logger.info(f"检测到图片型 PDF，启用 OCR: {pdf_path.name}")
-            content = ocr_pdf(pdf_path)
-
-    if not content.strip():
-        raise PDFParseError("PDF 解析结果为空，可能是扫描件或加密文件")
+        raise PDFParseError("PDF 无法提取文本（可能是图片型 PDF，不支持）")
 
     # 后处理：移除参考文献
     content = remove_references(content)
