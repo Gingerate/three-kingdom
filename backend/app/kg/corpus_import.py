@@ -225,17 +225,84 @@ def load_pdf_documents(raw_dir: str | None = None, files: list[str] | None = Non
                         text_parts.append(page_text)
                 content = "\n\n".join(text_parts)
 
-            # 如果 pdfplumber 提取不到文本，检测是否图片型 PDF → OCR fallback
             if not content.strip():
-                from app.tools.ocr import is_image_pdf, ocr_pdf
-                if is_image_pdf(filepath):
-                    logger.info(f"检测到图片型 PDF，启用 OCR: {filepath.name}")
-                    content = ocr_pdf(filepath)
+                logger.info(f"跳过图片型 PDF（无法提取文本）: {filepath.name}")
+                continue
+            source_name, category = detect_source(filepath.name)
+            # 使用相对于 raw/ 的路径作为 source
+            relative_path = str(filepath.relative_to(raw_path))
+            documents.append(RawDocument(
+                filename=filepath.name,
+                filepath=str(filepath),
+                content=content,
+                source=relative_path,
+                source_name=source_name,
+                category=category,
+            ))
+        except Exception as e:
+            logger.warning(f"无法解析 PDF {filepath}: {e}")
+
+    return documents
+
+
+def load_raw_documents_only(raw_dir: str | None = None, files: list[str] | None = None) -> list[RawDocument]:
+    """加载 raw/ 目录下已转换的文本文件（.md/.txt），不做格式转换
+
+    这是入库流程专用函数，假设文件已经在上传阶段完成了格式转换和质量检查。
+
+    Args:
+        raw_dir: raw/ 目录路径
+        files: 可选的文件路径列表（相对于 raw_dir），传入时只加载指定文件
+
+    Returns:
+        RawDocument 列表
+    """
+    raw_path = Path(raw_dir or settings.raw_data_dir)
+    if not raw_path.exists():
+        raw_path.mkdir(parents=True, exist_ok=True)
+        return []
+
+    # 只加载可读文本文件
+    documents = []
+    supported_ext = {".txt", ".md", ".text"}
+    skipped_files = []
+
+    if files:
+        # 只加载指定的文件
+        file_paths = []
+        for f in files:
+            filepath = raw_path / f
+            if filepath.exists() and filepath.is_file():
+                if filepath.suffix.lower() in supported_ext:
+                    file_paths.append(filepath)
+                else:
+                    skipped_files.append(filepath.name)
+    else:
+        all_files = sorted(raw_path.rglob("*"))
+        file_paths = []
+        for filepath in all_files:
+            if filepath.is_file():
+                if filepath.suffix.lower() in supported_ext:
+                    file_paths.append(filepath)
+                elif filepath.suffix.lower():  # 有扩展名的文件
+                    skipped_files.append(filepath.name)
+
+    # 记录被跳过的文件
+    if skipped_files:
+        logger.warning(f"跳过 {len(skipped_files)} 个非文本格式文件（可能未完成格式转换）: {skipped_files[:10]}")
+
+    for filepath in file_paths:
+        if filepath.is_file() and filepath.suffix.lower() in supported_ext:
+            try:
+                try:
+                    content = filepath.read_text(encoding="utf-8")
+                except UnicodeDecodeError:
+                    content = filepath.read_text(encoding="gbk")
+
                 if not content.strip():
                     continue
 
-                source_name, category = detect_source(filepath.name)
-                # 使用相对于 raw/ 的路径作为 source
+                source_name, category = detect_source(filepath.stem)
                 relative_path = str(filepath.relative_to(raw_path))
                 documents.append(RawDocument(
                     filename=filepath.name,
@@ -245,21 +312,25 @@ def load_pdf_documents(raw_dir: str | None = None, files: list[str] | None = Non
                     source_name=source_name,
                     category=category,
                 ))
-        except Exception as e:
-            logger.warning(f"无法解析 PDF {filepath}: {e}")
+            except Exception as e:
+                logger.warning(f"无法读取文件 {filepath}: {e}")
 
     return documents
 
 
-def load_all_documents(raw_dir: str | None = None, files: list[str] | None = None) -> list[RawDocument]:
-    """加载所有文档（文本 + PDF，自动转换非标准格式，含质量门禁）
+def load_all_documents(raw_dir: str | None = None, files: list[str] | None = None, auto_convert_flag: bool = True) -> list[RawDocument]:
+    """加载所有文档（文本 + PDF，可选自动转换，含质量门禁）
 
     Args:
         raw_dir: raw/ 目录路径
         files: 可选的文件路径列表（相对于 raw_dir），传入时只加载指定文件
+        auto_convert_flag: 是否自动转换非标准格式（默认 True，用于向后兼容）
     """
-    docs = load_raw_documents(raw_dir, files=files)
-    docs.extend(load_pdf_documents(raw_dir, files=files))
+    if auto_convert_flag:
+        docs = load_raw_documents(raw_dir, files=files)
+        docs.extend(load_pdf_documents(raw_dir, files=files))
+    else:
+        docs = load_raw_documents_only(raw_dir, files=files)
 
     if not docs:
         return []

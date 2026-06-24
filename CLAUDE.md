@@ -74,7 +74,8 @@ API Router → RAG Agent (LangGraph) → VectorStore (Chroma) + LLM
 
 ### 数据存储
 
-- `backend/data/raw/` — 原始文献（.txt/.md/.pdf/.epub/.docx）
+- `backend/data/raw/` — 已转换的 .md 文件（带 YAML frontmatter，入库流程读取此目录）
+- `backend/data/originals/` — 原始文献（上传时自动移入，保留原始格式）
 - `backend/data/chroma/` — ChromaDB 向量数据库
 - `backend/data/sqlite.db` — 知识图谱 + 对话记录 + 知识摘要 + Wiki 页面
 
@@ -91,6 +92,7 @@ API Router → RAG Agent (LangGraph) → VectorStore (Chroma) + LLM
 - **LLM**：通过 OpenAI 兼容 API 调用，模型 ID 在 `.env` 中配置
 - **进度条**：使用 `InkProgress` 组件（水墨风格），不要用 Ant Design 默认 Progress
 - **提示词修改**：编辑 `backend/app/prompts/*.md` 文件，无需改代码
-- **入库流程**：`POST /api/ingest` 返回 task_id，前端通过 `GET /api/ingest/progress/{task_id}` SSE 监听实时进度
+- **上传流程**：`POST /api/ingest/upload` 完整流程：格式检查 → 图片PDF检测 → 转换为.md（带YAML frontmatter）→ 质量门禁 → 保存到 raw/ → 原始文件移到 originals/
+- **入库流程**：`POST /api/ingest` 返回 task_id，前端通过 `GET /api/ingest/progress/{task_id}` SSE 监听实时进度（只读取 raw/ 下的 .md/.txt 文件）
 - **计划文件**：在哪个项目中讨论计划，就在哪个项目目录中保存计划文件（`.planning/` 目录）
 - **Memory 文件**：每个项目的 memory 存储在项目目录下的 `.memory/` 目录中，按项目隔离

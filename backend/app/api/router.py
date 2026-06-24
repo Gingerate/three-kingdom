@@ -43,10 +43,6 @@ def _safe_path(raw_dir, filepath: str):
 
 # ==================== 基础 ====================
 
-@api_router.get("/health")
-async def health_check():
-    return {"status": "ok", "message": "三国历史知识库运行中"}
-
 
 # ==================== 智能问答 ====================
 
@@ -566,35 +562,184 @@ async def cancel_task(task_id: str):
 
 @api_router.post("/ingest/upload")
 async def upload_and_ingest(file: UploadFile = File(...)):
-    """上传文件并入库（保存到 raw/ 目录后触发入库流程）"""
+    """上传文件并入库（完整流程：格式检查 → 转换 → 质量门禁 → 保存 → 入库）
+
+    流程：
+    1. 格式检查（白名单验证）
+    2. 图片型PDF检测并拒绝
+    3. 转换为 .md（带 YAML frontmatter）
+    4. 乱码检查（质量门禁）
+    5. 保存 .md 到 raw/
+    6. 移动原始文件到 originals/
+    7. 触发入库流程
+    """
     import shutil
     from pathlib import Path
     from app.core.config import settings
+    from app.tools.translator import convert_to_md, SUPPORTED_EXTENSIONS, SKIP_EXTENSIONS
+    from app.kg.quality_gate import validate_document
 
-    # 保存到 raw 目录（安全处理文件名）
-    raw_dir = Path(settings.raw_data_dir)
-    raw_dir.mkdir(parents=True, exist_ok=True)
+    # ==================== 1. 格式检查 ====================
     safe_filename = os.path.basename(file.filename) if file.filename else "unnamed"
     if not safe_filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
-    file_path = raw_dir / safe_filename
 
-    def _save_file():
-        with open(file_path, "wb") as f:
+    file_ext = Path(safe_filename).suffix.lower()
+
+    # 检查是否在支持的格式列表中
+    if file_ext not in SUPPORTED_EXTENSIONS and file_ext not in SKIP_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的文件格式: {file_ext}，支持的格式: {', '.join(sorted(SUPPORTED_EXTENSIONS | SKIP_EXTENSIONS))}"
+        )
+
+    # ==================== 2. 保存临时文件进行处理 ====================
+    raw_dir = Path(settings.raw_data_dir)
+    originals_dir = Path(settings.raw_data_dir).parent / "originals"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    originals_dir.mkdir(parents=True, exist_ok=True)
+
+    # 先保存到临时目录进行处理
+    temp_dir = Path(settings.raw_data_dir).parent / "temp"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_file_path = temp_dir / safe_filename
+
+    def _save_temp_file():
+        with open(temp_file_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
-    await asyncio.to_thread(_save_file)
+    await asyncio.to_thread(_save_temp_file)
 
-    # 触发入库（只入库刚上传的文件）
-    from app.kg.pipeline import process_and_ingest
-    result = await asyncio.to_thread(process_and_ingest, files=[safe_filename])
+    try:
+        # ==================== 3. 图片型PDF检测 ====================
+        if file_ext == ".pdf":
+            def _check_pdf():
+                try:
+                    import pdfplumber
+                    with pdfplumber.open(str(temp_file_path)) as pdf:
+                        for page in pdf.pages[:3]:  # 只检查前3页
+                            text = page.extract_text()
+                            if text and text.strip():
+                                return True  # 可以提取文本
+                    return False  # 无法提取文本，是图片型PDF
+                except Exception:
+                    return False
 
-    return {
-        "status": "ok",
-        "filename": file.filename,
-        "size": file_path.stat().st_size,
-        "result": result,
-    }
+            is_text_pdf = await asyncio.to_thread(_check_pdf)
+            if not is_text_pdf:
+                # 清理临时文件
+                temp_file_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=400,
+                    detail="不支持图片型PDF，请上传可提取文本的PDF文件"
+                )
+
+        # ==================== 4. 格式转换为 .md ====================
+        if file_ext in SKIP_EXTENSIONS:
+            # .txt/.md/.pdf 无需格式转换，但需要添加 frontmatter
+            md_filename = Path(safe_filename).stem + ".md"
+            md_file_path = raw_dir / md_filename
+
+            def _copy_to_raw():
+                from app.tools.translator import _generate_frontmatter
+
+                if file_ext == ".pdf":
+                    # PDF 需要提取文本
+                    import pdfplumber
+                    with pdfplumber.open(str(temp_file_path)) as pdf:
+                        text_parts = []
+                        for page in pdf.pages:
+                            page_text = page.extract_text()
+                            if page_text:
+                                text_parts.append(page_text)
+                        content = "\n\n".join(text_parts)
+                elif file_ext == ".md":
+                    # .md 文件读取内容，跳过已有的 frontmatter
+                    raw_content = temp_file_path.read_text(encoding="utf-8")
+                    # 如果已有 frontmatter，跳过它
+                    if raw_content.startswith("---"):
+                        parts = raw_content.split("---", 2)
+                        if len(parts) >= 3:
+                            content = parts[2].strip()
+                        else:
+                            content = raw_content
+                    else:
+                        content = raw_content
+                else:
+                    # .txt 文件读取内容
+                    content = temp_file_path.read_text(encoding="utf-8")
+
+                # 添加 frontmatter
+                frontmatter = _generate_frontmatter(safe_filename, file_ext)
+                content = f"{frontmatter}\n\n{content}"
+
+                md_file_path.write_text(content, encoding="utf-8")
+
+            await asyncio.to_thread(_copy_to_raw)
+            converted_path = md_file_path
+        else:
+            # 需要转换的格式
+            def _convert():
+                return convert_to_md(str(temp_file_path), str(raw_dir), add_frontmatter=True)
+
+            result = await asyncio.to_thread(_convert)
+            if not result.success:
+                temp_file_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"格式转换失败: {result.message}"
+                )
+            converted_path = Path(result.output_path)
+
+        # ==================== 5. 质量门禁验证 ====================
+        def _validate():
+            content = converted_path.read_text(encoding="utf-8")
+            return validate_document(content, converted_path.name)
+
+        validation_result = await asyncio.to_thread(_validate)
+        if not validation_result.passed:
+            # 质量不合格，删除转换后的文件
+            converted_path.unlink(missing_ok=True)
+            temp_file_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=400,
+                detail=f"文件质量检查未通过: {validation_result.message}"
+            )
+
+        # ==================== 6. 移动原始文件到 originals/ ====================
+        originals_file_path = originals_dir / safe_filename
+
+        def _move_to_originals():
+            if temp_file_path.exists():
+                shutil.move(str(temp_file_path), str(originals_file_path))
+
+        await asyncio.to_thread(_move_to_originals)
+
+        # ==================== 7. 触发入库流程 ====================
+        from app.kg.pipeline import process_and_ingest
+        ingest_filename = converted_path.name
+        result = await asyncio.to_thread(process_and_ingest, files=[ingest_filename])
+
+        return {
+            "status": "ok",
+            "filename": file.filename,
+            "converted_filename": ingest_filename,
+            "size": converted_path.stat().st_size,
+            "quality_score": validation_result.level.value,
+            "result": result,
+        }
+
+    except HTTPException:
+        # 清理临时文件
+        if temp_file_path.exists():
+            temp_file_path.unlink(missing_ok=True)
+        raise
+    except Exception as e:
+        # 清理临时文件
+        if temp_file_path.exists():
+            temp_file_path.unlink(missing_ok=True)
+        logger.error(f"上传处理失败: {e}")
+        raise HTTPException(status_code=500, detail=f"上传处理失败: {str(e)}")
 
 
 @api_router.get("/stats")

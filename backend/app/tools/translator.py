@@ -3,6 +3,7 @@
 import re
 from pathlib import Path
 from dataclasses import dataclass
+from datetime import datetime
 
 # 支持转换的格式
 SUPPORTED_EXTENSIONS = {
@@ -23,6 +24,30 @@ SUPPORTED_EXTENSIONS = {
 SKIP_EXTENSIONS = {".txt", ".md", ".text", ".pdf"}
 
 
+def _generate_frontmatter(filename: str, ext: str, category: str = "") -> str:
+    """生成 YAML frontmatter
+
+    Args:
+        filename: 原始文件名
+        ext: 原始文件扩展名
+        category: 文档分类（正史/演义/论文等）
+
+    Returns:
+        YAML frontmatter 字符串
+    """
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    lines = [
+        "---",
+        f"source: {filename}",
+        f"format: {ext}",
+        f"converted_at: {now}",
+    ]
+    if category:
+        lines.append(f"category: {category}")
+    lines.append("---")
+    return "\n".join(lines)
+
+
 @dataclass
 class ConvertResult:
     """转换结果"""
@@ -34,12 +59,14 @@ class ConvertResult:
     issues: list[str] | None = None
 
 
-def convert_to_md(source_path: str, output_dir: str | None = None) -> ConvertResult:
+def convert_to_md(source_path: str, output_dir: str | None = None, add_frontmatter: bool = True, category: str = "") -> ConvertResult:
     """将文本文件转换为 .md 格式
 
     Args:
         source_path: 源文件路径
         output_dir: 输出目录，默认与源文件同目录
+        add_frontmatter: 是否添加 YAML frontmatter（默认 True）
+        category: 文档分类（正史/演义/论文等），用于 frontmatter
 
     Returns:
         ConvertResult 转换结果
@@ -91,6 +118,11 @@ def convert_to_md(source_path: str, output_dir: str | None = None) -> ConvertRes
 
     if not md_content or not md_content.strip():
         return ConvertResult(False, source_path, None, "转换结果为空")
+
+    # 添加 YAML frontmatter
+    if add_frontmatter:
+        frontmatter = _generate_frontmatter(src.name, ext, category)
+        md_content = f"{frontmatter}\n\n{md_content}"
 
     # 校验转换质量
     quality_score, issues = _validate_quality(md_content)
@@ -584,14 +616,8 @@ def _convert_caj(src: Path) -> str:
 
     content = "\n\n".join(text_parts)
 
-    # Step 3: 如果提取不到文本，尝试 OCR
     if not content.strip():
-        from app.tools.ocr import is_image_pdf, ocr_pdf
-        if is_image_pdf(pdf_path):
-            content = ocr_pdf(pdf_path)
-
-    if not content.strip():
-        raise RuntimeError(f"CAJ 转换后无法提取文本: {src.name}")
+        raise RuntimeError(f"CAJ 转换后无法提取文本（可能是图片型 PDF）: {src.name}")
 
     return content
 

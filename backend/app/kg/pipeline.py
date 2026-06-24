@@ -1,9 +1,12 @@
-"""数据处理管线 —— 语料导入 → 切分 → embedding → 入库"""
+"""数据处理管线 —— 语料导入 → 切分 → embedding → 入库
+
+注意：入库流程只读取已转换的 .md/.txt 文件，格式转换在上传阶段完成。
+"""
 
 import asyncio
 import logging
 import threading
-from app.kg.corpus_import import load_all_documents, RawDocument
+from app.kg.corpus_import import load_raw_documents_only, RawDocument
 from app.kg.text_splitter import split_document, Chunk
 from app.rag.vectorstore import add_chunks_to_vectorstore, get_vectorstore_stats, clear_vectorstore
 from app.core.database import init_db
@@ -58,7 +61,7 @@ def process_and_ingest(raw_dir: str | None = None,
         # 1. 加载文档（如果指定了 files，只加载指定文件，不全量扫描）
         logger.info("=" * 50)
         logger.info("第 1 步：加载原始文档")
-        documents = load_all_documents(raw_dir, files=files)
+        documents = load_raw_documents_only(raw_dir, files=files)
 
         if files:
             logger.info(f"指定入库 {len(files)} 个文件，匹配到 {len(documents)} 个文档")
@@ -208,7 +211,7 @@ def process_and_ingest_with_progress(task_id: str, raw_dir: str | None = None,
         # 1. 加载文档（如果指定了 files，只加载指定文件）
         check_cancelled()
         update(stage="加载文档", message="正在扫描 raw/ 目录...")
-        documents = load_all_documents(raw_dir, files=files)
+        documents = load_raw_documents_only(raw_dir, files=files)
 
         if files:
             update(message=f"指定入库 {len(files)} 个文件，匹配到 {len(documents)} 个文档")
