@@ -13,21 +13,21 @@ start "后端服务" cmd /k "cd /d %~dp0backend && uv run uvicorn app.main:app -
 timeout /t 3 /nobreak >nul
 
 :: 启动前端
-echo [2/3] 启动前端服务 (端口 5174)...
+echo [2/3] 启动前端服务 (端口 5173)...
 start "前端服务" cmd /k "cd /d %~dp0frontend && npm run dev"
 timeout /t 3 /nobreak >nul
 
-:: 启动 Cloudflare 隧道
-echo [3/3] 启动公网隧道...
-start "Cloudflare隧道" cmd /k "cd /d %~dp0 && tools\cloudflare\cloudflared.exe tunnel --url http://localhost:5174"
+:: 启动 Cloudflare 命名隧道（配置文件在 ~/.cloudflared/config.yml）
+echo [3/3] 启动公网隧道 (jinligame.fun)...
+start "Cloudflare隧道" cmd /k "tools\cloudflare\cloudflared.exe tunnel run || echo 隧道启动失败，但本地访问仍可用"
 
 echo.
 echo ========================================
-echo   全部服务已启动！
+echo   服务已启动！
 echo ========================================
 echo.
-echo   本地访问: http://localhost:5174
-echo   公网访问: 查看"Cloudflare隧道"窗口获取地址
+echo   本地访问: http://localhost:5173
+echo   公网访问: https://jinligame.fun
 echo.
 echo   关闭各窗口即可停止对应服务
 echo ========================================

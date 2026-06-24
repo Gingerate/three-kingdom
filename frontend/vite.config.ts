@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: '0.0.0.0', // 监听所有接口（支持 IPv4/IPv6）
     allowedHosts: true, // 允许所有主机访问（用于内网穿透）
     proxy: {
       '/api': {
