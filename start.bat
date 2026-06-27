@@ -1,34 +1,50 @@
 @echo off
 chcp 65001 >nul
-title 三国知识库 - 启动中...
+title Three Kingdoms Knowledge Base
 
 echo ========================================
-echo   三国历史知识库 - 一键启动
+echo   Three Kingdoms - Quick Start
 echo ========================================
 echo.
 
-:: 启动后端
-echo [1/3] 启动后端服务 (端口 8000)...
-start "后端服务" cmd /k "cd /d %~dp0backend && uv run uvicorn app.main:app --reload --port 8000"
+set "PATH=%USERPROFILE%\.local\bin;%PATH%"
+
+echo [1/3] Starting backend (port 8000)...
+start "Backend" cmd /k "cd /d %~dp0backend && uv run uvicorn app.main:app --reload --port 8000"
+
+echo       Waiting for backend...
+set /a count=0
+:wait_loop
+timeout /t 2 /nobreak >nul
+set /a count+=1
+curl -s http://localhost:8000/docs >nul 2>&1
+if %errorlevel%==0 (
+    echo       Backend ready!
+    goto :backend_ready
+)
+if %count% geq 15 (
+    echo       Backend slow, continue anyway...
+    goto :backend_ready
+)
+goto :wait_loop
+
+:backend_ready
+
+echo [2/3] Starting frontend (port 5173)...
+start "Frontend" cmd /k "cd /d %~dp0frontend && npm run dev"
 timeout /t 3 /nobreak >nul
 
-:: 启动前端
-echo [2/3] 启动前端服务 (端口 5173)...
-start "前端服务" cmd /k "cd /d %~dp0frontend && npm run dev"
-timeout /t 3 /nobreak >nul
-
-:: 启动 Cloudflare 命名隧道（配置文件在 ~/.cloudflared/config.yml）
-echo [3/3] 启动公网隧道 (jinligame.fun)...
-start "Cloudflare隧道" cmd /k "tools\cloudflare\cloudflared.exe tunnel run || echo 隧道启动失败，但本地访问仍可用"
+echo [3/3] Starting Cloudflare tunnel...
+start "Cloudflare" cmd /k "tools\cloudflare\cloudflared.exe tunnel run"
 
 echo.
 echo ========================================
-echo   服务已启动！
+echo   All services started!
 echo ========================================
 echo.
-echo   本地访问: http://localhost:5173
-echo   公网访问: https://jinligame.fun
+echo   Local:  http://localhost:5173
+echo   Public: https://jinligame.fun
 echo.
-echo   关闭各窗口即可停止对应服务
+echo   Close each window to stop that service
 echo ========================================
 pause
